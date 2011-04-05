@@ -10,7 +10,7 @@ import pdb
 from scipy import weave
 import cPickle as pickle
 import tempfile
-
+import pstats
 
 def sample(obj, n):
     ind = random.sample(xrange(len(obj)),n)
@@ -81,7 +81,6 @@ def flatten(x):
     dstr, arr = get_flat_arrlist(x)
     return dstr, arr
 
-
 full_ps1_db = '/raid14/home/mjuric/lsd/full_ps1/lsd/db_20101203.1'
 sas_db = '/raid14/home/mjuric/lsd/db_20101203.1'
 
@@ -114,7 +113,6 @@ def svsol(u,s,vh,b):
     out = numpy.dot(numpy.diag(s2), out)
     out = numpy.dot(numpy.transpose(vh), out)
     return out
-
 
 def svd_variance(u, s, vh):
     s2 = 1./(s + (s == 0))*(s != 0)
@@ -317,3 +315,10 @@ def pickle_unpickle(x):
     tf.seek(0)
     x = pickle.load(tf)
     return x
+
+
+def make_stats_usable(x):
+    """ dumps and loads an ipython stats object to render it usable."""
+    tf = tempfile.NamedTemporaryFile()
+    x.dump_stats(tf.name)
+    return pstats.Stats(tf.name)
