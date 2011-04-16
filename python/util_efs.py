@@ -11,9 +11,12 @@ from scipy import weave
 import cPickle as pickle
 import tempfile
 import pstats
+from astrometry.libkd.spherematch import match_radec
+from lsd.utils import gc_dist
+
 
 def sample(obj, n):
-    ind = random.sample(xrange(len(obj)),n)
+    ind = random.sample(xrange(len(obj)),numpy.int(n))
     return obj[numpy.array(ind)]
 
 
@@ -47,6 +50,8 @@ class subslices:
         self.ind = 0
     def __iter__(self):
         return self
+    def __len__(self):
+        return len(self.uind)
     def next(self):
         if self.ind == len(self.uind):
             raise StopIteration
@@ -279,9 +284,9 @@ class Scatter:
 
 # Stolen from MJ
 def scatterplot(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
-                normalize=True, **kw):
+                normalize=True, xbin=None, ybin=None, **kw):
 
-    scatter = Scatter(x, y, xnpix=xnpix, ynpix=ynpix,
+    scatter = Scatter(x, y, xnpix=xnpix, ynpix=ynpix, xbin=xbin, ybin=ybin,
                       xrange=xrange, yrange=yrange, normalize=normalize)
     scatter.show(**kw)
     return scatter
