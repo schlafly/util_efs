@@ -11,7 +11,7 @@ from scipy import weave
 import cPickle as pickle
 import tempfile
 import pstats
-from astrometry.libkd.spherematch import match_radec
+#from astrometry.libkd.spherematch import match_radec
 from lsd.utils import gc_dist
 
 
@@ -327,3 +327,13 @@ def make_stats_usable(x):
     tf = tempfile.NamedTemporaryFile()
     x.dump_stats(tf.name)
     return pstats.Stats(tf.name)
+
+
+# given some values val and a dictionary dict, create
+# [dict[v] for v in val], but hopefully more quickly?
+def convert_val(val, d):
+    s = numpy.argsort(val)
+    out = numpy.zeros(len(val), dtype=type(d[val[0]]))
+    for first, last in subslices(val[s]):
+        out[s[first:last]] = d[val[s[first]]]
+    return out
