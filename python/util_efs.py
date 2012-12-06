@@ -389,6 +389,8 @@ def ravel_index(coords, shape):
 def fasthist(x, first, num, binsz, weight=None, nchunk=10000000):
     outdims = [n + 2 for n in num]
     dtype = 'u4' if weight is None else weight.dtype
+    weight = weight if weight is not None else numpy.ones(len(x[0]),
+                                                          dtype='u4')
     out = numpy.zeros(numpy.product(outdims), dtype=dtype)
     i = 0
     while i*nchunk < len(x[0]):
@@ -510,8 +512,9 @@ class Scatter:
             coltot = numpy.ones(len(self.coltot))
         dispim = hist / coltot.reshape((len(coltot), 1))
         extent = [self.xe[0], self.xe[-1], self.ye[0], self.ye[-1]]
-        pyplot.imshow(dispim.T, extent=extent, interpolation='nearest',
-                      origin='lower', aspect='auto', **kw)
+        if 'nograyscale' not in kw or not kw['nograyscale']:
+            pyplot.imshow(dispim.T, extent=extent, interpolation='nearest',
+                          origin='lower', aspect='auto', **kw)
         if self.conditional:
             xpts2 = (numpy.repeat(self.xpts, 2) + 
                      numpy.tile(numpy.array([-1.,1.])*0.5*self.deltx,
@@ -555,7 +558,6 @@ def convert_to_structured_array(ob, fields, getfn=getattr):
             dtype += [(f, val.dtype.descr)]
         else:
             dtype.append((f, val.dtype.str))
-    pdb.set_trace()
     out = numpy.zeros(1, dtype=dtype)
     for f in fields:
         if f in skipzero:
@@ -563,11 +565,10 @@ def convert_to_structured_array(ob, fields, getfn=getattr):
             continue
         val = getfn(ob, f, None)
         if val is not None:
-            pass
             if not numpy.isscalar(out[f][0]):
+                val = numpy.array(val)
                 assert out[f][0].shape == val.shape, (out[f][0].shape, val.shape)
                 assert out[f][0].dtype == val.dtype, (out[f][0].dtype, val.dtype)
-            pdb.set_trace()
             out[f][0] = val
     return out
 
@@ -680,15 +681,18 @@ def convert_val(val, d, default=None):
 def mag_arr_index(mag, ind):
     return mag[:,ind] if isinstance(ind, (int, long)) else mag[ind]
 
-def ccd(mag, ind1, ind2, ind3, ind4, nozero=True,
+def ccd(mag, ind1, ind2, ind3, ind4, markersymbol=',', nozero=True,
         norm=matplotlib.colors.LogNorm(),
-        xrange=[-1,3], yrange=[-1,3], contour=False, **kwargs):
+        xrange=[-1,3], yrange=[-1,3], contour=False, pts=False, **kwargs):
     x = mag_arr_index(mag, ind1) - mag_arr_index(mag, ind2)
     y = mag_arr_index(mag, ind3) - mag_arr_index(mag, ind4)
     if nozero:
         m = (x != 0) & (y != 0)
         x = x[m]
         y = y[m]
+    if pts or len(x) < 1000:
+        pyplot.plot(x, y, markersymbol) ; pyplot.xlim(xrange) ; pyplot.ylim(yrange)
+        return
     if not contour:
         scatterplot(x, y, conditional=False, xrange=xrange, yrange=yrange,
                     norm=norm, **kwargs)
@@ -696,13 +700,17 @@ def ccd(mag, ind1, ind2, ind3, ind4, nozero=True,
         contourpts(x, y, xrange=xrange, yrange=yrange, **kwargs)
 
 def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(), 
-        xrange=[-1,3], yrange=[25,10], contour=False, **kwargs):
+        xrange=[-1,3], yrange=[25,10], contour=False, pts=False, markersymbol=',',
+        **kwargs):
     x = mag_arr_index(mag, ind1) - mag_arr_index(mag, ind2)
     y = mag_arr_index(mag, ind3)
     if nozero:
         m = (x != 0) & (y != 0)
         x = x[m]
         y = y[m]
+    if pts or len(x) < 1000:
+        pyplot.plot(x, y, markersymbol) ; pyplot.xlim(xrange) ; pyplot.ylim(yrange)
+        return
     if not contour:
         scatterplot(x, y, conditional=False, xrange=xrange, yrange=yrange,
                     norm=norm, **kwargs)
@@ -870,12 +878,24 @@ def lb2uv(r, d):
     y = numpy.sin(p)*numpy.sin(t)
     return numpy.vstack([x, y, z]).transpose().copy()
 
-def uv2lb(uv):
+def uv2tp(uv):
     norm = numpy.sqrt(numpy.sum(uv**2., axis=1))
     uv = uv / norm.reshape(-1, 1)
     t = numpy.arccos(uv[:,2])
     p = numpy.arctan2(uv[:,0], uv[:,1])
-    return tp2lb(t, p)
+    return t, p
+
+def xyz2tp(x, y, z):
+    norm = numpy.sqrt(x**2+y**2+z**2)
+    t = numpy.arccos(z/norm)
+    p = numy.arctan2(x/norm, y/norm)
+    return t, p
+
+def uv2lb(uv):
+    return tp2lb(*uv2tp(uv))
+
+def xyz2lb(x, y, z):
+    return tp2lb(*xyz2tp(x, y, z))
 
 def lbr2xyz_galactic(l, b, re, r0=8.5):
     l, b = numpy.radians(l), numpy.radians(b)
@@ -902,6 +922,31 @@ def healgen(nside):
 def healgen_lb(nside):
     return tp2lb(*healgen(nside))
 
+def heal_rebin(map, nside, ring=True):
+    if ring:
+        map = healpy.reorder(map, r2n=True)
+    if map.dtype.name == 'bool':
+        map = map.astype('f4')
+    nside_orig = healpy.get_nside(map)
+    if nside_orig % nside != 0:
+        raise ValueError('nside must divide nside_orig')
+    binfac = int((nside_orig / nside)**2)
+    assert binfac * 12*nside**2 == len(map), 'Inconsistent sizes in heal_rebin.'
+    newmap = map.copy()
+    newmap = map.reshape((-1, binfac))
+    newmap = numpy.sum(newmap, axis=1)
+    if ring:
+        newmap = healpy.reorder(newmap, n2r=True)
+    return newmap / binfac
+
+def heal_rebin_mask(map, nside, mask, ring=True, nanbad=False):
+    newmap = heal_rebin(map*mask, nside, ring=ring)
+    newmask = heal_rebin(mask, nside, ring=ring)
+    out = newmap/(newmask + (newmask == 0))
+    if nanbad:
+        out[newmask == 0] = numpy.nan
+    return out
+
 def heal2cart(heal, interp=True):
     nside = healpy.get_nside(heal)
     owidth = 8*nside
@@ -919,14 +964,18 @@ def heal2cart(heal, interp=True):
     return map
 
 def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
-           min=None, max=None,
-           interp_healpy=True, log=False, center_gal=False, **kwargs):
+           min=None, max=None, mask_nan=False,
+           interp_healpy=True, log=False, center_gal=False, color=False,
+           **kwargs):
     if xpts is not None and ypts is not None:
         dx = numpy.median(xpts[1:]-xpts[:-1])
         dy = numpy.median(ypts[1:]-ypts[:-1])
         kwargs['extent'] = [xpts[0]-dx/2., xpts[-1]+dx/2.,
                             ypts[0]-dy/2., ypts[-1]+dx/2.]
-        im = im.T
+        if not color:
+            im = im.T
+        else:
+            im = numpy.transpose(im, axes=[0, 1])
         kwargs['origin'] = 'lower'
     if 'aspect' not in kwargs:
         kwargs['aspect'] = 'auto'
@@ -934,12 +983,30 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         kwargs['interpolation'] = 'nearest'
     if 'cmap' not in kwargs:
         kwargs['cmap'] = 'binary'
-    if (len(im.shape) == 1) and healpy.isnpixok(len(im)):
-        im = heal2cart(im, interp=interp_healpy)
+    if isinstance(kwargs['cmap'], str):
+        kwargs['cmap'] = matplotlib.cm.get_cmap(kwargs['cmap'])
+    oneim = im if not color else im[:,0]
+    if (len(oneim.shape) == 1) and healpy.isnpixok(len(oneim)):
+        if not color:
+            im = heal2cart(im, interp=interp_healpy)
+        else:
+            outim = None
+            ncolor = im.shape[-1]
+            for i in numpy.arange(ncolor, dtype='i4'):
+                oneim = heal2cart(im[:,i], interp=interp_healpy)
+                if outim is None:
+                    outim = numpy.zeros(oneim.shape+(ncolor,))
+                outim[:,:,i] = oneim
+            im = outim
         if not center_gal:
             kwargs['extent'] = ((360, 0, -90, 90))
         else:
-            im = numpy.roll(im, im.shape[1]/2, axis=1)
+            if not color:
+                im = numpy.roll(im, im.shape[1]/2, axis=1)
+            else:
+                ncolor = im.shape[-1]
+                for i in numpy.arange(ncolor,dtype='i4'):
+                    im[:,:,i] = numpy.roll(im[:,:,i], im.shape[1]/2, axis=1)
             kwargs['extent'] = ((180, -180, -90, 90))
     if range is not None:
         if min is not None or max is not None:
@@ -952,6 +1019,11 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         kwargs['vmax'] = max
     if log:
         kwargs['norm'] = matplotlib.colors.LogNorm()
+    if mask_nan:
+        #im = numpy.ma.array(im, mask=numpy.isnan(im))
+        kwargs['cmap'].set_bad('lightblue', 1)
+    else:
+        kwargs['cmap'].set_bad('lightblue', 0)
     out = pyplot.imshow(im, **kwargs)
     if xrange is not None:
         pyplot.xlim(xrange)
@@ -961,15 +1033,20 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
 
 def contourpts(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
                 normalize=True, xbin=None, ybin=None, log=False,
-                levels=None, nlevels=6, logmin=0, symbol=',', minlevel=1, **kw):
+                levels=None, nlevels=6, logmin=0, symbol=',', minlevel=1,
+               logspace=None, nopoints=False,
+               **kw):
      sc = Scatter(x, y, xnpix=xnpix, ynpix=ynpix, xbin=xbin, ybin=ybin,
                   xrange=xrange, yrange=yrange, normalize=normalize,
                   conditional=False)
      if levels is None:
          maximage = numpy.float(numpy.max(sc.hist))
          if log:
-             levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
-                            (numpy.log10(maximage)-logmin)/nlevels)
+             if logspace is None:
+                 levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
+                                (numpy.log10(maximage)-logmin)/nlevels)
+             else:
+                 levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))
          else:
              levels = (numpy.arange(nlevels)+minlevel)*maximage/nlevels
 
@@ -991,7 +1068,8 @@ def contourpts(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
           (yloc >= 0) & (yloc < len(sc.ypts)))
      m[m] &= sc.hist[xloc[m], yloc[m]] < min(levels)
      kw.pop('colors', None)
-     pyplot.plot(x[m], y[m], symbol, **kw)
+     if not nopoints:
+         pyplot.plot(x[m], y[m], symbol, **kw)
      pyplot.xlim(sc.xrange)
      pyplot.ylim(sc.yrange)
 
@@ -1008,7 +1086,7 @@ def match(a, b):
     m[m] &= matches
     return sa[ind[m]], numpy.flatnonzero(m)
 
-def setup_print(size=None, **kw):
+def setup_print(size=None, keys=None, **kw):
     params = {'backend': 'ps',
               'axes.labelsize': 12,
               'text.fontsize': 12,
@@ -1018,6 +1096,9 @@ def setup_print(size=None, **kw):
               'text.usetex': True }
     for key in kw:
         params[key] = kw[key]
+    if keys is not None:
+        for key in keys:
+            params[key] = keys[key]
     from matplotlib import pyplot
     oldparams = dict(pyplot.rcParams.items())
     pyplot.rcParams.update(params)
@@ -1125,12 +1206,35 @@ def mjd2lst(mjd, lng):
     t0 = jd - jd2000
     t = t0/36525.
     theta = c[0] + (c[1] * t0) + t**2*(c[2] - t/ c[3] )
-    lst = (theta + double(lng))/15.
+    lst = (theta + lng)/15.
     lst = lst % 24.
     return lst
 
-#def rdlmjd2airmass(r, d, lng, mjd):
-#    lst = mjd2lst(mjd, lng)
-#    lst = 
-    
-    
+def stirling_approx(n):
+    return n*numpy.log(n) - n + numpy.log(n)/2. + numpy.log(2*numpy.pi)/2.
+
+# PS1 lat/lon: 20.71552, -156.169
+def rdllmjd2altaz(r, d, lat, lng, mjd):
+    lst = mjd2lst(mjd, lng)
+    ha = lst*360./24 - r
+    d2r = numpy.pi/180.
+    # hadec2altaz.pro in idlutils
+    sin, cos = numpy.sin, numpy.cos
+    sh, ch = sin(ha*d2r),  cos(ha*d2r)
+    sd, cd = sin(d*d2r), cos(d*d2r)
+    sl, cl = sin(lat*d2r), cos(lat*d2r)
+    x = - ch * cd * sl + sd * cl
+    y = - sh * cd
+    z = ch * cd * cl + sd * sl
+    r = numpy.sqrt(x**2 + y**2)
+    az = numpy.arctan2(y, x) / d2r
+    alt = (numpy.arctan2(z, r) / d2r) % 360.
+    return alt, az
+
+def alt2airmass(alt):
+    # Pickering (2002) according to Wikipedia?
+    #h = alt #90-alt
+    #return 1./(numpy.sin(numpy.radians(h + 244 / (165 + 47*h**1.1))))
+    # disagrees with sec(z) by 0.001 - 0.002 near zenith, which is the most important part anyway.
+    # probably ~1% better at airmass 3, and rapidly better after that---but who cares?
+    return 1./numpy.cos(numpy.radians(90-alt))

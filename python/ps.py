@@ -4,6 +4,7 @@ import collections
 
 filt = ['g','r','i','z','y']
 filtind = dict([(f,i) for i,f in enumerate(filt)])
+indfilt = dict([(i,f) for i,f in enumerate(filt)])
 filt2sdss = dict(((f+'.0000', i+1 if i < 4 else 4) for i,f in enumerate(filt)))
 # canonical colors to draw these filters in
 filtcolor = collections.OrderedDict([ ('g','purple'), ('r', 'blue'),
@@ -85,12 +86,20 @@ pssdsstransformdict = {
                               [None, None]]
     }
 
-pssdsstransformdictdpf = {
+pssdsstransformdictdpfpreabscal = {
     ('g-g', 'g-i'): [(-0.01710,-0.10915, 0.00540, 0.00126), [None, None]],
     ('r-r', 'g-i'): [( 0.01062,-0.02579, 0.01729,-0.00324), [None, None]],
     ('i-i', 'g-i'): [(-0.00241, 0.00309,-0.00294, 0.00027), [None, None]],
     ('z-z', 'g-i'): [(-0.01810, 0.06830,-0.03026, 0.00696), [None, None]],
     ('y-z', 'g-i'): [( 0.08149,-0.16694, 0.06876,-0.01441), [None, None]]
+}
+
+pssdsstransformdictdpf = {
+    ('g-g', 'g-i'): [( 0.00128,-0.10699, 0.00392, 0.00152), [None, None]],
+    ('r-r', 'g-i'): [(-0.00518,-0.03561, 0.02359,-0.00447), [None, None]],
+    ('i-i', 'g-i'): [( 0.00585,-0.01287, 0.00707,-0.00178), [None, None]],
+    ('z-z', 'g-i'): [( 0.00144, 0.07379,-0.03366, 0.00765), [None, None]],
+    ('y-z', 'g-i'): [( 0.10403,-0.18755, 0.08333,-0.01800), [None, None]]
 }
 
 def pssdsstransform(filt, sdsscolor, color, lumclass=None, return_poly=False,
@@ -244,3 +253,25 @@ def stellar_locus_tonry(ri, outcolor):
     #return interpolate.spline(riknots, outknots, ri, kind='natural', order=3)
     #spl = interpolate.splmake(riknots, outknots, kind='natural')
     
+def clean(tflags):
+    badflags = (flags['FITFAIL'] | flags['POORFIT'] |
+            flags['SATSTAR'] | flags['BLEND'] |
+            flags['BADPSF'] | flags['DEFECT'] | flags['SATURATED'] |
+            flags['CR_LIMIT'] | # flags['EXT_LIMIT'] |
+            flags['MOMENTS_FAILURE'] | flags['SKY_FAILURE'] |
+            flags['SKYVAR_FAILURE'] | flags['BIG_RADIUS'] |
+            #flags['SIZE_SKIPPED'] |
+            flags['ON_SPIKE'] |
+            flags['ON_GHOST'] | flags['OFF_CHIP'])
+    return (tflags & badflags) == 0
+# EXT_LIMIT commented out
+
+def rdm2airmass(ra, dec, mjd_obs):
+    import util_efs
+    lat = 20.7070999146
+    lon = -156.2559127815 # PS1 coordinates
+    alt, az = util_efs.rdllmjd2altaz(ra, dec, lat, lon, mjd_obs)
+    am = util_efs.alt2airmass(alt)
+    m = (am < 0)
+    am[m] = numpy.nan
+    return am
