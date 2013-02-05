@@ -64,7 +64,7 @@ def max_bygroup(val, ind):
            #line 64 "util_efs.py"
            int pind = 0;
            for(int i=0; i<Nind[0]; i++) {
-               int maxval = val(pind);
+               double maxval = val(pind);
                for(int j=pind+1; j<ind(i)+1; j++) {
                    maxval = maxval > val(j) ? maxval : val(j);
                }
@@ -888,7 +888,7 @@ def uv2tp(uv):
 def xyz2tp(x, y, z):
     norm = numpy.sqrt(x**2+y**2+z**2)
     t = numpy.arccos(z/norm)
-    p = numy.arctan2(x/norm, y/norm)
+    p = numpy.arctan2(x/norm, y/norm)
     return t, p
 
 def uv2lb(uv):
@@ -971,7 +971,9 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         dx = numpy.median(xpts[1:]-xpts[:-1])
         dy = numpy.median(ypts[1:]-ypts[:-1])
         kwargs['extent'] = [xpts[0]-dx/2., xpts[-1]+dx/2.,
-                            ypts[0]-dy/2., ypts[-1]+dx/2.]
+                            ypts[0]-dy/2., ypts[-1]+dy/2.]
+        if len(xpts) != im.shape[0] or len(ypts) != im.shape[1]:
+            print 'Warning: mismatch between xpts, ypts and im.shape'
         if not color:
             im = im.T
         else:
@@ -1029,7 +1031,60 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         pyplot.xlim(xrange)
     if yrange is not None:
         pyplot.ylim(yrange)
+    #events = EventHandlerImshow(pyplot.gcf(), out,
+    #                            numpy.nanmin(im), numpy.nanmax(im))
     return out
+
+class EventHandlerImshow():
+    def __init__(self, fig, im1, min, max):
+        self.button_pressed = False
+        self.fig = fig
+        self.im1 = im1
+        self.min, self.max = min, max
+        self.fig.canvas.mpl_connect('button_press_event',
+                                    lambda x: self.handle_press(x))
+        self.fig.canvas.mpl_connect('motion_notify_event',
+                                    lambda x: self.handle_motion(x))
+        self.fig.canvas.mpl_connect('button_release_event',
+                                    lambda x: self.handle_release(x))
+
+    def handle_press(self, event):
+        if self.fig.canvas.manager.toolbar.mode != "" or event.inaxes != self.im1.axes:
+            return
+        if event.button == 1:
+            self.update_color_scale(event.xdata, event.ydata)
+            self.button_pressed = True
+
+    def handle_motion(self, event):
+        if self.fig.canvas.manager.toolbar.mode != "" or event.inaxes != self.im1.axes:
+            return
+        if self.button_pressed:
+            self.update_color_scale(event.xdata, event.ydata)
+
+    def handle_release(self, event):
+        if self.fig.canvas.manager.toolbar.mode != "" or event.inaxes != self.im1.axes:
+            return
+        if event.button == 1:
+            self.button_pressed = False
+
+    def update_color_scale(self, x, y):
+        xl, yl = self.im1.axes.get_xlim(), self.im1.axes.get_ylim()
+        xfrac = (x-xl[0]) / float(xl[1]-xl[0])
+        yfrac = (y-yl[0]) / float(yl[1]-yl[0])
+        min, max = self.min, self.max
+        if isinstance(self.im1.norm, matplotlib.colors.LogNorm):
+            min, max = numpy.log10([min, max])
+        centercolor = self.min + (self.max - self.min)*xfrac
+        if yfrac > 0.5:
+            rangecolor = (self.max-self.min)* 10**((yfrac-0.5)/0.5)*0.5
+        else:
+            rangecolor = (self.max-self.min)*yfrac
+        newrange = [centercolor-rangecolor, centercolor+rangecolor]
+        if isinstance(self.im1
+                      .norm, matplotlib.colors.LogNorm):
+            newrange = [10.**x for x in newrange]
+        self.im1.set_clim(newrange)
+        self.fig.canvas.draw()
 
 def contourpts(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
                 normalize=True, xbin=None, ybin=None, log=False,
@@ -1166,7 +1221,7 @@ def bindata(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
                          (xpts[1]-xpts[0], ypts[1]-ypts[0]),
                          weight=weight)
     return (hist_all/(whist_all + (whist_all == 0)), whist_all,
-            xpts+ybin/2., ypts+ybin/2.)
+            xpts[:-1]+xbin/2., ypts[:-1]+ybin/2.)
 
 def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None, **kw):
     im, wim, xpts, ypts = bindata(x, y, dat, xrange=xrange, yrange=yrange,
