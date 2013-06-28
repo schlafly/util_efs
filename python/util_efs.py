@@ -94,8 +94,11 @@ def minmax(v, nan=False):
 
 class subslices:
     "Iterator for looping over subsets of an array"
-    def __init__(self, data):
-        self.uind = unique(data)
+    def __init__(self, data, uind=None):
+        if uind is None:
+            self.uind = unique(data)
+        else:
+            self.uind = uind.copy()
         self.ind = 0
     def __iter__(self):
         return self
@@ -174,7 +177,8 @@ def readhdf5(filename, dsname=None):
             raise IOError('No data found in file %s' % filename)
         dsname = keys[0]
     try:
-        ds = f.create_dataset(dsname)
+        #ds = f.create_dataset(dsname, shape=f[dsname].shape)
+        ds = f[dsname]
     except Exception as e:
         print 'possible keys:' , f.keys()
         f.close()
@@ -184,9 +188,11 @@ def readhdf5(filename, dsname=None):
     return dat
 
 # stolen from internet, Simon Brunning
-def locate(pattern, root=os.curdir):
+def locate(pattern, root=None):
     '''Locate all files matching supplied filename pattern in and below
     supplied root directory.'''
+    if root is None:
+        root = os.curdir
     for path, dirs, files in os.walk(os.path.abspath(root)):
         files2 = [os.path.join(os.path.relpath(path, start=root), f)
                   for f in files]
@@ -313,7 +319,7 @@ def percentile_freq(v, quantiles, axis=0, rescale=None):
 	if axis != 0:
 		v = v.transpose()
 
-	cs = numpy.cumsum(v, axis=0)
+	cs = numpy.cumsum(v, axis=0, dtype='f8')
 	c = numpy.zeros((v.shape[0]+1, v.shape[1]))
         c[1:, :] = cs / (cs[-1, :] + (cs[-1, :] == 0))
 
@@ -400,6 +406,8 @@ def fasthist(x, first, num, binsz, weight=None, nchunk=10000000):
         else:
             xc = [y[i*nchunk:] for y in x]
             weightc = weight[i*nchunk:]
+        if len(weightc) != len(xc[0]):
+            pdb.set_trace()
         out = fasthist_aux(out, outdims, xc, first, num, binsz, weight=weightc)
         # = rather than += because fasthist_aux overwrites out
         i += 1
@@ -413,8 +421,7 @@ def fasthist_aux(out, outdims, x, first, num, binsz, weight=None):
         weight = numpy.ones(len(x[0]), dtype='u4')
     loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in zip(loc, num)]
     flatloc = ravel_index(loc, outdims)
-    m = numpy.isfinite(flatloc)
-    return add_arr_at_ind(out, weight[m], flatloc[m])
+    return add_arr_at_ind(out, weight, flatloc)
 
 def make_bins(p, range, bin, npix):
     if bin != None and npix != None:
@@ -458,10 +465,10 @@ class Scatter:
         m = numpy.isfinite(x) & numpy.isfinite(y)
         xrange, xpts, flipx = make_bins(x[m], xrange, xbin, xnpix)
         yrange, ypts, flipy = make_bins(y[m], yrange, ybin, ynpix)
-        self.hist_all = fasthist((x,y), (xpts[0], ypts[0]),
+        self.hist_all = fasthist((x[m],y[m]), (xpts[0], ypts[0]),
                                  (len(xpts)-1, len(ypts)-1),
                                  (xpts[1]-xpts[0], ypts[1]-ypts[0]),
-                                 weight=weight)
+                                 weight=weight[m])
         if flipx:
             xpts = xpts[::-1].copy()
             self.hist_all = self.hist_all[::-1,:].copy()
@@ -652,6 +659,7 @@ def pickle_unpickle(x):
     pickle.dump(x, tf)
     tf.seek(0)
     x = pickle.load(tf)
+    tf.close()
     return x
 
 
@@ -659,6 +667,7 @@ def make_stats_usable(x):
     """ dumps and loads an ipython stats object to render it usable."""
     tf = tempfile.NamedTemporaryFile()
     x.dump_stats(tf.name)
+    tf.close()
     return pstats.Stats(tf.name)
 
 
@@ -718,7 +727,7 @@ def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(),
         contourpts(x, y, xrange=xrange, yrange=yrange, **kwargs)
 
 def djs_iterstat(dat, invvar=None, sigrej=3., maxiter=10.,
-                 prefilter=False):
+                 prefilter=False, removenan=False, removemask=False):
     """ Straight port of djs_iterstat.pro in idlutils"""
     out = { }
     dat = numpy.atleast_1d(dat)
@@ -726,11 +735,22 @@ def djs_iterstat(dat, invvar=None, sigrej=3., maxiter=10.,
         invvar = numpy.atleast_1d(invvar)
         assert len(invvar) == len(dat)
         assert numpy.all(invvar >= 0)
+    if removenan:
+        keep = numpy.isfinite(dat)
+        if invvar is not None:
+            keep = keep & numpy.isfinite(invvar)
+        dat = dat[keep]
+        if invvar is not None:
+            invvar = invvar[keep]
+        initial_mask = keep
     nan = numpy.nan
     ngood = numpy.sum(invvar > 0) if invvar is not None else len(dat)
     if ngood == 0:
+        ntot = len(dat)
+        if removenan:
+            ntot = len(initial_mask)
         out = {'mean':nan, 'median':nan, 'sigma':nan,
-               'mask':numpy.zeros(0, dtype='bool'), 'newivar':nan}
+               'mask':numpy.zeros(ntot, dtype='bool'), 'newivar':nan}
         return out
     if ngood == 1:
         val = dat[invvar > 0] if invvar is not None else dat[0]
@@ -779,8 +799,14 @@ def djs_iterstat(dat, invvar=None, sigrej=3., maxiter=10.,
     newivar = nan
     if invvar is not None:
         newivar = numpy.sum(invvar*savemask)
-    return {'mean':fmean, 'median':fmedian, 'sigma':fsig,
-            'mask':savemask, 'newivar':newivar}
+    if removenan:
+        initial_mask[initial_mask] = savemask
+        savemask = initial_mask
+    ret = {'mean':fmean, 'median':fmedian, 'sigma':fsig,
+           'mask':savemask != 0, 'newivar':newivar}
+    if removemask:
+        ret.pop('mask')
+    return ret
 
 def check_sorted(x):
     if len(x) <= 1:
@@ -871,18 +897,20 @@ def lb2tp(l, b):
 def tp2lb(t, p):
     return p*180./numpy.pi, 90.-t*180./numpy.pi
 
-def lb2uv(r, d):
-    t, p = lb2tp(r, d)
+def tp2uv(t, p):
     z = numpy.cos(t)
     x = numpy.cos(p)*numpy.sin(t)
     y = numpy.sin(p)*numpy.sin(t)
     return numpy.vstack([x, y, z]).transpose().copy()
+    
+def lb2uv(r, d):
+    return tp2uv(*lb2tp(r, d))
 
 def uv2tp(uv):
     norm = numpy.sqrt(numpy.sum(uv**2., axis=1))
     uv = uv / norm.reshape(-1, 1)
     t = numpy.arccos(uv[:,2])
-    p = numpy.arctan2(uv[:,0], uv[:,1])
+    p = numpy.arctan2(uv[:,1], uv[:,0])
     return t, p
 
 def xyz2tp(x, y, z):
@@ -966,6 +994,7 @@ def heal2cart(heal, interp=True):
 def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
            min=None, max=None, mask_nan=False,
            interp_healpy=True, log=False, center_gal=False, color=False,
+           return_handler=False,
            **kwargs):
     if xpts is not None and ypts is not None:
         dx = numpy.median(xpts[1:]-xpts[:-1])
@@ -1026,27 +1055,33 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         kwargs['cmap'].set_bad('lightblue', 1)
     else:
         kwargs['cmap'].set_bad('lightblue', 0)
+    updatecolorscale = kwargs.pop('updatecolorscale', False)
     out = pyplot.imshow(im, **kwargs)
     if xrange is not None:
         pyplot.xlim(xrange)
     if yrange is not None:
         pyplot.ylim(yrange)
-    #events = EventHandlerImshow(pyplot.gcf(), out,
-    #                            numpy.nanmin(im), numpy.nanmax(im))
+    events = EventHandlerImshow(pyplot.gcf(), out,
+                                updatecolorscale=updatecolorscale)
+    if return_handler:
+        out = (out, events)
     return out
 
 class EventHandlerImshow():
-    def __init__(self, fig, im1, min, max):
+    def __init__(self, fig, im1, updatecolorscale=False):
         self.button_pressed = False
         self.fig = fig
         self.im1 = im1
-        self.min, self.max = min, max
+        self.xfrac, self.yfrac = 0.5, 0.5
+        self.min, self.max = (numpy.nanmin(numpy.array(self.im1._A)),
+                              numpy.nanmax(numpy.array(self.im1._A)))
         self.fig.canvas.mpl_connect('button_press_event',
                                     lambda x: self.handle_press(x))
         self.fig.canvas.mpl_connect('motion_notify_event',
                                     lambda x: self.handle_motion(x))
         self.fig.canvas.mpl_connect('button_release_event',
                                     lambda x: self.handle_release(x))
+        self.updatecolorscale = updatecolorscale
 
     def handle_press(self, event):
         if self.fig.canvas.manager.toolbar.mode != "" or event.inaxes != self.im1.axes:
@@ -1067,21 +1102,27 @@ class EventHandlerImshow():
         if event.button == 1:
             self.button_pressed = False
 
-    def update_color_scale(self, x, y):
-        xl, yl = self.im1.axes.get_xlim(), self.im1.axes.get_ylim()
-        xfrac = (x-xl[0]) / float(xl[1]-xl[0])
-        yfrac = (y-yl[0]) / float(yl[1]-yl[0])
-        min, max = self.min, self.max
+    def update_color_scale(self, x=None, y=None):
+        if x is not None and y is not None:
+            xl, yl = self.im1.axes.get_xlim(), self.im1.axes.get_ylim()
+            self.xfrac = (x-xl[0]) / float(xl[1]-xl[0])
+            self.yfrac = (y-yl[0]) / float(yl[1]-yl[0])
+        xfrac = self.xfrac
+        yfrac = self.yfrac
+        if self.updatecolorscale:
+            self.min, self.max = (numpy.nanmin(numpy.array(self.im1._A)),
+                                  numpy.nanmax(numpy.array(self.im1._A)))
         if isinstance(self.im1.norm, matplotlib.colors.LogNorm):
-            min, max = numpy.log10([min, max])
+            if self.min <= 0:
+                self.min = 1 # dumb
+            self.min, self.max = numpy.log10([self.min, self.max])
         centercolor = self.min + (self.max - self.min)*xfrac
         if yfrac > 0.5:
             rangecolor = (self.max-self.min)* 10**((yfrac-0.5)/0.5)*0.5
         else:
             rangecolor = (self.max-self.min)*yfrac
         newrange = [centercolor-rangecolor, centercolor+rangecolor]
-        if isinstance(self.im1
-                      .norm, matplotlib.colors.LogNorm):
+        if isinstance(self.im1.norm, matplotlib.colors.LogNorm):
             newrange = [10.**x for x in newrange]
         self.im1.set_clim(newrange)
         self.fig.canvas.draw()
@@ -1228,7 +1269,7 @@ def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None, **kw):
                                   **kw)
     imshow(im, xpts, ypts, xrange=xrange, yrange=yrange, min=min, max=max)
 
-def cg_to_fits(cg):
+def cg_to_fits(cg, fixub=True):
     dtype = cg.dtype
     for col in dtype.descr:
         colname = col[0]
@@ -1236,6 +1277,8 @@ def cg_to_fits(cg):
         if format.find('O') != -1:
             cg.drop_column(colname)
             print 'Warning: dropping column %s because FITS does not support objects.' % colname
+            continue
+        if not fixub:
             continue
         uloc = format.find('u')
         if uloc == -1:
@@ -1248,7 +1291,17 @@ def cg_to_fits(cg):
         cg.drop_column(colname)
         cg.add_column(colname, new)
     return cg
-            
+
+def fitstondarray(fits, lower=False):
+    from copy import deepcopy
+    nd = numpy.zeros(len(fits), fits.dtype)
+    for f in fits.dtype.names:
+        nd[f] = fits[f]
+    if lower:
+        names = list(deepcopy(nd.dtype.names))
+        names = [n.lower() for n in names]
+        nd.dtype.names = names
+    return nd
 
 def mjd2lst(mjd, lng):
     """ Stolen from ct2lst.pro in IDL astrolib.
@@ -1269,7 +1322,12 @@ def stirling_approx(n):
     return n*numpy.log(n) - n + numpy.log(n)/2. + numpy.log(2*numpy.pi)/2.
 
 # PS1 lat/lon: 20.71552, -156.169
-def rdllmjd2altaz(r, d, lat, lng, mjd):
+def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
+    if precess:
+        import precess as precessmod
+        jd2000 = 2451545.0
+        mjdstart = 2400000.5
+        r, d = precessmod.precess(r, d, 2000., 2000.+(mjd + mjdstart - jd2000)/365.25)
     lst = mjd2lst(mjd, lng)
     ha = lst*360./24 - r
     d2r = numpy.pi/180.
@@ -1293,3 +1351,23 @@ def alt2airmass(alt):
     # disagrees with sec(z) by 0.001 - 0.002 near zenith, which is the most important part anyway.
     # probably ~1% better at airmass 3, and rapidly better after that---but who cares?
     return 1./numpy.cos(numpy.radians(90-alt))
+
+def interpolate_from(fits, r, d, wcs=None, im=None):
+    if wcs is None:
+        import pywcs, pyfits
+        h = pyfits.getheader(fits)
+        wcs = pywcs.WCS(h)
+    if im is None:
+        import pyfits
+        im = pyfits.getdata(fits)
+    ims = im.squeeze()
+    pix = wcs.wcs_sky2pix(numpy.array([r, d,
+                                       numpy.ones(len(r)),
+                                       numpy.ones(len(r))]).transpose(), 0)
+    from scipy.ndimage import map_coordinates
+    val = map_coordinates(ims, (pix[:,0:2])[:,::-1].transpose(),
+                 cval=numpy.nan, order=1)
+    return val
+    
+
+    

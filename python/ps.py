@@ -27,47 +27,58 @@ md_fieldcenters = {
     'md11':(270.000,  66.561) }
 
 flags = {
-'DEFAULT' 	 : 0x00000000, 	 #: Initial value: resets all bits
-'PSFMODEL' 	 : 0x00000001, 	 #: Source fitted with a psf model (linear or non-linear)
-'EXTMODEL' 	 : 0x00000002, 	 #: Source fitted with an extended-source model
-'FITTED' 	 : 0x00000004, 	 #: Source fitted with non-linear model (PSF or EXT; good or bad)
-'FITFAIL' 	 : 0x00000008, 	 #: Fit (non-linear) failed (non-converge, off-edge, run to zero)
-'POORFIT' 	 : 0x00000010, 	 #: Fit succeeds, but low-SN, high-Chisq, or large (for PSF -- drop?)
-'PAIR'		 : 0x00000020, 	 #: Source fitted with a double psf
-'PSFSTAR' 	 : 0x00000040, 	 #: Source used to define PSF model
-'SATSTAR' 	 : 0x00000080, 	 #: Source model peak is above saturation
-'BLEND' 	 : 0x00000100, 	 #: Source is a blend with other sourcers
-'EXTERNALPOS' 	 : 0x00000200, 	 #: Source based on supplied input position
-'BADPSF'	 : 0x00000400, 	 #: Failed to get good estimate of object's PSF
-'DEFECT'	 : 0x00000800, 	 #: Source is thought to be a defect
-'SATURATED' 	 : 0x00001000, 	 #: Source is thought to be saturated pixels (bleed trail)
-'CR_LIMIT' 	 : 0x00002000, 	 #: Source has crNsigma above limit
-'EXT_LIMIT' 	 : 0x00004000, 	 #: Source has extNsigma above limit
-'MOMENTS_FAILURE': 0x00008000, 	 #: could not measure the moments
-'SKY_FAILURE' 	 : 0x00010000, 	 #: could not measure the local sky
-'SKYVAR_FAILURE' : 0x00020000, 	 #: could not measure the local sky variance
-'MOMENTS_SN' 	 : 0x00040000, 	 #: moments not measured due to low S/N
-'BIG_RADIUS' 	 : 0x00080000, 	 #: poor moments for small radius, try large radius
-'AP_MAGS' 	 : 0x00100000, 	 #: source has an aperture magnitude
-'BLEND_FIT' 	 : 0x00200000, 	 #: source was fitted as a blend
-'EXTENDED_FIT' 	 : 0x00400000, 	 #: full extended fit was used
-'EXTENDED_STATS' : 0x00800000, 	 #: extended aperture stats calculated
-'LINEAR_FIT' 	 : 0x01000000, 	 #: source fitted with the linear fit
-'NONLINEAR_FIT'  : 0x02000000, 	 #: source fitted with the non-linear fit
-'RADIAL_FLUX' 	 : 0x04000000, 	 #: radial flux measurements calculated
-'SIZE_SKIPPED' 	 : 0x08000000, 	 #: size could not be determined
-'ON_SPIKE' 	 : 0x10000000, 	 #: peak lands on diffraction spike
-'ON_GHOST' 	 : 0x20000000, 	 #: peak lands on ghost or glint
-'OFF_CHIP' 	 : 0x40000000 	 #: peak lands off edge of chip
+'DEFAULT'          	  : 0x00000000, # Initial value: resets all bits
+'PSFMODEL'         	  : 0x00000001, # Source fitted with a psf model (linear or non-linear)
+'EXTMODEL'         	  : 0x00000002, # Source fitted with an extended-source model
+'FITTED'           	  : 0x00000004, # Source fitted with non-linear model (PSF or EXT; good or bad)
+'FITFAIL'             	  : 0x00000008, # Fit (non-linear) failed (non-converge, off-edge, run to zero)
+'POORFIT'             	  : 0x00000010, # Fit succeeds, but low-SN, high-Chisq, or large (for PSF -- drop?)
+'PAIR'             	  : 0x00000020, # Source fitted with a double psf
+'PSFSTAR'          	  : 0x00000040, # Source used to define PSF model
+'SATSTAR'          	  : 0x00000080, # Source model peak is above saturation
+'BLEND'            	  : 0x00000100, # Source is a blend with other sources
+'EXTERNALPOS'         	  : 0x00000200, # Source based on supplied input position
+'BADPSF'           	  : 0x00000400, # Failed to get good estimate of object's PSF
+'DEFECT'           	  : 0x00000800, # Source is thought to be a defect
+'SATURATED'        	  : 0x00001000, # Source is thought to be saturated pixels (bleed trail)
+'CR_LIMIT'         	  : 0x00002000, # Source has crNsigma above limit
+'EXT_LIMIT'        	  : 0x00004000, # Source has extNsigma above limit
+'MOMENTS_FAILURE'  	  : 0x00008000, # could not measure the moments
+'SKY_FAILURE'      	  : 0x00010000, # could not measure the local sky
+'SKYVAR_FAILURE'   	  : 0x00020000, # could not measure the local sky variance
+'BELOW_MOMENTS_SN' 	  : 0x00040000, # moments not measured due to low S/N
+'BIG_RADIUS'       	  : 0x00100000, # poor moments for small radius, try large radius
+'AP_MAGS'          	  : 0x00200000, # source has an aperture magnitude
+'BLEND_FIT'        	  : 0x00400000, # source was fitted as a blend
+'EXTENDED_FIT'     	  : 0x00800000, # full extended fit was used
+'EXTENDED_STATS'   	  : 0x01000000, # extended aperture stats calculated
+'LINEAR_FIT'       	  : 0x02000000, # source fitted with the linear fit
+'NONLINEAR_FIT'    	  : 0x04000000, # source fitted with the non-linear fit
+'RADIAL_FLUX'      	  : 0x08000000, # radial flux measurements calculated
+'SIZE_SKIPPED'     	  : 0x10000000, # size could not be determined
+'ON_SPIKE'         	  : 0x20000000, # peak lands on diffraction spike
+'ON_GHOST'         	  : 0x40000000, # peak lands on ghost or glint
+'OFF_CHIP'         	  : 0x80000000, # peak lands off edge of chip
 }
 for x,y in flags.items():
     flags[y] = x
 
 # definition of flags2 (see http://svn.pan-starrs.ifa.hawaii.edu/trac/ipp/wiki/CMF_PS1_V3)
 flags2 = {
-'DIFF_WITH_SINGLE' : 0x00000001, 	#: diff source matched to a single positive detection
-'DIFF_WITH_DOUBLE' : 0x00000002, 	#: diff source matched to positive detections in both images
-'MATCHED'	   : 0x00000004 	#: source was supplied at this location from somewhere else (eg, another image, forced photometry location, etc)
+'DEFAULT'          	  : 0x00000000, # Initial value: resets all bits
+'DIFF_WITH_SINGLE' 	  : 0x00000001, # diff source matched to a single positive detection
+'DIFF_WITH_DOUBLE' 	  : 0x00000002, # diff source matched to positive detections in both images
+'MATCHED'          	  : 0x00000004, # diff source matched to positive detections in both images
+'ON_SPIKE'         	  : 0x00000008, # > 25% of (PSF-weighted) pixels land on diffraction spike
+'ON_STARCORE'      	  : 0x00000010, # > 25% of (PSF-weighted) pixels land on starcore
+'ON_BURNTOOL'      	  : 0x00000020, # > 25% of (PSF-weighted) pixels land on burntool
+'ON_CONVPOOR'      	  : 0x00000040, # > 25% of (PSF-weighted) pixels land on convpoor
+'PASS1_SRC'               : 0x00000080, # source detected in first pass analysis
+'HAS_BRIGHTER_NEIGHBOR'   : 0x00000100, # peak is not the brightest in its footprint
+'BRIGHT_NEIGHBOR_1'       : 0x00000200, # flux_n / (r^2 flux_p) > 1
+'BRIGHT_NEIGHBOR_10'      : 0x00000400, # flux_n / (r^2 flux_p) > 10
+'DIFF_SELF_MATCH'  	  : 0x00000800, # positive detection match is probably this source 
+'SATSTAR_PROFILE'         : 0x00001000, # saturated source is modeled with a radial profile
 }
 for x,y in flags2.items():
     flags2[y] = x
@@ -84,6 +95,15 @@ pssdsstransformdict = {
     ('y-z', 'i-z'):   [(0.01479, -.3777, 0.1078, -.03996), [None, None]],
     ('w-r', 'r-i'):   [(0.05081, 0.1362, -.5670, 0.1384, -.01127),
                               [None, None]]
+    }
+
+pssdsstransformdictjt2012 = {
+    ('g-g', 'g-r'): [(-.011, -.125, -0.015), [None, None]],
+    ('r-r', 'g-r'): [(.001, -.006, -.002), [None, None]],
+    ('i-i', 'g-r'): [(.004, -0.014, 0.001), [None, None]],
+    ('z-z', 'g-r'): [(-0.013, 0.040, -0.001), [None, None]],
+    ('y-z', 'g-r'): [(0.031, -.106, 0.01), [None, None]],
+    ('w-r', 'g-r'): [(0.018, 0.118, -0.091), [None, None]]
     }
 
 pssdsstransformdictdpfpreabscal = {
@@ -265,6 +285,20 @@ def clean(tflags):
             flags['ON_GHOST'] | flags['OFF_CHIP'])
     return (tflags & badflags) == 0
 # EXT_LIMIT commented out
+
+def badflags_eam():
+    badflagstr = ('FITFAIL POORFIT PAIR SATSTAR BLEND BADPSF DEFECT SATURATED '+
+                  'CR_LIMIT MOMENTS_FAILURE SKY_FAILURE SKYVAR_FAILURE '+
+                  'BELOW_MOMENTS_SN BLEND_FIT SIZE_SKIPPED ON_SPIKE ON_GHOST '+
+                  'OFF_CHIP')
+    badflags = 0
+    for s in badflagstr.split():
+        badflags |= flags[s]
+    badflag2str = ('HAS_BRIGHTER_NEIGHBOR BRIGHT_NEIGHBOR_1 BRIGHT_NEIGHBOR_10')
+    badflags2 = 0
+    for s in badflag2str.split():
+        badflags2 |= flags2[s]
+    return badflags, badflags2
 
 def rdm2airmass(ra, dec, mjd_obs):
     import util_efs
