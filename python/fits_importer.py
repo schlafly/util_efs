@@ -30,15 +30,19 @@ def import_file(file, table, ra, dec):
     import pyfits
     try:
         dat = numpy.array(pyfits.getdata(file, 1)[:])
+    except IndexError:
+        dat = 0
+        yield (file, 0)
     except Exception as e:
         print 'Could not read file %s' % file
         raise e
-    # FITS capitalization problems...
-    dtype = dat.dtype
-    fix_names(dtype, ra, dec)
-    #pdb.set_trace()
-    ids = table.append(dat)
-    yield (file, len(ids))
+    if dat != 0:
+        # FITS capitalization problems...
+        dtype = dat.dtype
+        fix_names(dtype, ra, dec)
+        #pdb.set_trace()
+        ids = table.append(dat)
+        yield (file, len(ids))
 
 def import_fits(db, table, filedir, ra='', dec=''):
     from lsd import pool2
@@ -52,7 +56,12 @@ def import_fits(db, table, filedir, ra='', dec=''):
     else:
         file_list = filedir
 
-    firstfile = pyfits.getdata(file_list[0], 1)
+    try:
+        firstfile = pyfits.getdata(file_list[0], 1)
+    except Exception as e:
+        print 'Could not read first file %s' % file_list[0]
+        print file_list[0:10]
+        raise e
     dtype = firstfile.dtype
     fix_names(dtype, ra, dec)
     columns = table_def['schema']['main']['columns']
@@ -85,8 +94,12 @@ if __name__ == "__main__":
     parser.add_argument('--db', '-d', default=os.environ['LSD_DB'])
     parser.add_argument('--ra', default='', help='column in fits file to rename ra')
     parser.add_argument('--dec', default='', help='column in fits file to rename dec')
+    parser.add_argument('--list', default=False, action='store_true')
     parser.add_argument('table', type=str, nargs=1)
     parser.add_argument('filedir', type=str, nargs=1)
     args = parser.parse_args()
-    import_fits(args.db, args.table[0], args.filedir[0],
+    files = args.filedir[0]
+    if args.list:
+        files = open(files, 'r').readlines()
+    import_fits(args.db, args.table[0], files,
                 ra=args.ra, dec=args.dec)

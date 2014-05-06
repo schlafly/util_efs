@@ -47,14 +47,14 @@ def unique_multikey(obj, keys):
     Returns the list of indices of the last elements in each group
     of equal-comparing items in obj
     """
-    nobj = len(obj)
+    nobj = len(obj[keys[0]])
     if nobj == 0:
         return numpy.zeros(0, dtype='i8')
     if nobj == 1:
         return numpy.zeros(1, dtype='i8')
     out = numpy.zeros(nobj, dtype=numpy.bool)
     for k in keys:
-        out[0:nobj-1] |= (obj[0:nobj-1][k] != obj[1:nobj][k])
+        out[0:nobj-1] |= (obj[k][0:nobj-1] != obj[k][1:nobj])
     out[nobj-1] = True
     return numpy.sort(numpy.flatnonzero(out))
 
@@ -308,7 +308,7 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
 # Stolen from MJ
 #######################################################################
 # Compute percentiles of 2D ndarrays of frequencies
-def percentile_freq(v, quantiles, axis=0, rescale=None):
+def percentile_freq(v, quantiles, axis=0, rescale=None, catchallbin=True):
 	"""
 	Given an array v, compute quantiles along a given axis
 	
@@ -336,7 +336,10 @@ def percentile_freq(v, quantiles, axis=0, rescale=None):
 		res[:, k] = numpy.interp(quantiles, y, x)
 
 	if rescale:
-		res = rescale[0] + (rescale[1] - rescale[0]) * (res/v.shape[0])
+                if catchallbin:
+                        res = rescale[0] + (rescale[1]-rescale[0])*(res-1)/(v.shape[0]-2)
+                else:
+                        res = rescale[0] + (rescale[1] - rescale[0]) * (res/v.shape[0])
 
         if axis != 0:
             v = v.transpose()
@@ -502,16 +505,16 @@ class Scatter:
         self.xrange = self.xpts[-zo]+0.5*self.deltx*(zo*2-1)
         self.yrange = self.ypts[-zo]+0.5*self.delty*(zo*2-1)
         self.coltot = numpy.sum(self.hist_all[1:-1,:], axis=1)
-        # 1:-1 to remove the first last last rows in _x_ from the
+        # 1:-1 to remove the first and last rows in _x_ from the
         # conditional sums. e.g., everything that falls outside of
         # the x limits.  The stuff falling outside of the y limits
         # still counts
         if self.conditional:
             self.q16, self.q50, self.q84 = \
                     percentile_freq(self.hist_all[1:-1,:], [0.16, 0.5, 0.84],
-                                   axis=1, rescale=[self.ye[0], self.ye[-1]])
+                                    axis=1, rescale=[self.ye[0], self.ye[-1]])
 
-    def show(self, **kw):
+    def show(self, linecolor='k', **kw):
         hist = self.hist
         if self.conditional:
             coltot = (self.coltot + (self.coltot == 0))
@@ -526,9 +529,9 @@ class Scatter:
             xpts2 = (numpy.repeat(self.xpts, 2) + 
                      numpy.tile(numpy.array([-1.,1.])*0.5*self.deltx,
                                 len(self.xpts)))
-            pyplot.plot(xpts2, numpy.repeat(self.q16, 2), "k",
-                        xpts2, numpy.repeat(self.q50, 2), "k",
-                        xpts2, numpy.repeat(self.q84, 2), "k")
+            pyplot.plot(xpts2, numpy.repeat(self.q16, 2), linecolor,
+                        xpts2, numpy.repeat(self.q50, 2), linecolor,
+                        xpts2, numpy.repeat(self.q84, 2), linecolor)
         pyplot.xlim(self.xrange)
         pyplot.ylim(self.yrange)
 
@@ -825,6 +828,18 @@ def solve_lstsq(aa, bb, ivar, return_covar=False):
         ret = ret + (covar,)
     return ret
 
+def solve_lstsq_covar(aa, bb, icvar, return_covar=False):
+    d, t = numpy.dot, numpy.transpose
+    atcinvb = d(t(aa), d(icvar,bb))
+    atcinva = d(t(aa), d(icvar,aa))
+    u,s,vh = numpy.linalg.svd(atcinva)
+    par = svsol(u,s,vh,atcinvb)
+    var, covar = svd_variance(u, s, vh)
+    ret = (par, var)
+    if return_covar:
+        ret = ret + (covar,)
+    return ret
+
 def polyfit(x, y, deg, ivar=None, return_covar=False):
     aa = numpy.zeros((len(x), deg+1))
     for i in xrange(deg+1):
@@ -895,7 +910,7 @@ def lb2tp(l, b):
     return (90.-b)*numpy.pi/180., l*numpy.pi/180.
 
 def tp2lb(t, p):
-    return p*180./numpy.pi, 90.-t*180./numpy.pi
+    return p*180./numpy.pi % 360., 90.-t*180./numpy.pi
 
 def tp2uv(t, p):
     z = numpy.cos(t)
@@ -1006,7 +1021,7 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         if not color:
             im = im.T
         else:
-            im = numpy.transpose(im, axes=[0, 1])
+            im = numpy.transpose(im, axes=[1, 0, 2])
         kwargs['origin'] = 'lower'
     if 'aspect' not in kwargs:
         kwargs['aspect'] = 'auto'
@@ -1182,14 +1197,15 @@ def match(a, b):
     m[m] &= matches
     return sa[ind[m]], numpy.flatnonzero(m)
 
-def setup_print(size=None, keys=None, **kw):
+def setup_print(size=None, keys=None, scalefont=1., **kw):
     params = {'backend': 'ps',
-              'axes.labelsize': 12,
-              'text.fontsize': 12,
-              'legend.fontsize': 10,
-              'xtick.labelsize': 10,
-              'ytick.labelsize': 10,
-              'text.usetex': True }
+              'axes.labelsize': 12*scalefont,
+              'text.fontsize': 12*scalefont,
+              'legend.fontsize': 10*scalefont,
+              'xtick.labelsize': 10*scalefont,
+              'ytick.labelsize': 10*scalefont,
+              'text.usetex': True,
+              }#'font.family': 'sans'}
     for key in kw:
         params[key] = kw[key]
     if keys is not None:
@@ -1286,7 +1302,10 @@ def cg_to_fits(cg, fixub=True):
         if uloc == -1:
             continue
         orig = cg[colname]
-        newformat = format[:uloc]+'i'+format[uloc+1:]
+        newbytes = format[uloc+1:]
+        if len(newbytes) == 1 and int(newbytes) < 4:
+            newbytes = '4'
+        newformat = format[:uloc]+'i'+newbytes
         new = numpy.array(orig, newformat)
         cg.drop_column(colname)
         cg.add_column(colname, new)
@@ -1369,5 +1388,57 @@ def interpolate_from(fits, r, d, wcs=None, im=None):
                  cval=numpy.nan, order=1)
     return val
     
+def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
+    import pyfits
+    nbytes = len(dat)*dat.dtype.itemsize
+    if breakkey is not None:
+        s = numpy.argsort(dat[breakkey])
+        dat = dat[s]
+    nrecperfile = chunksize / dat.dtype.itemsize
+    i = 0
+    dotpos = filename[::-1].find('.')
+    if dotpos != -1:
+        filestart, fileend = filename[0:-dotpos-1], filename[-dotpos-1:]
+    else:
+        filestart, fileend = filename, ''
+    if breakkey is None:
+        while i*nrecperfile < len(dat):
+            filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
+            print filename, i*nrecperfile, (i+1)*nrecperfile
+            pyfits.writeto(filename, dat[i*nrecperfile:(i+1)*nrecperfile])
+            i += 1
+    else:
+        first = 0
+        last = 0
+        i = 0
+        for f,l in subslices(dat[breakkey]):
+            last += l-f
+            if last-first > nrecperfile or (last != first and l == len(dat)):
+                filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
+                print filename, first, last, last-first
+                pyfits.writeto(filename, dat[first:last])
+                first = last
+                i += 1
 
-    
+
+eclobliquity = numpy.pi*(23. + (26 + 21.406/60.)/60.)/180.
+
+def equecl(r, d):
+    from numpy import sin, cos
+    e = eclobliquity
+    uv = lb2uv(r, d)
+    uve = uv * 0
+    uve[:,0] = uv[:,0]
+    uve[:,1] = uv[:,1]*cos(e)+uv[:,2]*sin(e)
+    uve[:,2] = -uv[:,1]*sin(e)+uv[:,2]*cos(e)
+    return uv2lb(uve)
+
+def eclequ(lam, be):
+    from numpy import sin, cos
+    e = eclobliquity
+    uv = lb2uv(lam, be)
+    uve = uv * 0
+    uve[:,0] = uv[:,0]
+    uve[:,1] = uv[:,1]*cos(e)-uv[:,2]*sin(e)
+    uve[:,2] = uv[:,1]*sin(e)+uv[:,2]*cos(e)
+    return uv2lb(uve)

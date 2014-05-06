@@ -122,10 +122,25 @@ pssdsstransformdictdpf = {
     ('y-z', 'g-i'): [( 0.10403,-0.18755, 0.08333,-0.01800), [None, None]]
 }
 
+sdsspstransformdictdpf = {
+    ('u-g', 'g-i'): [( 0.02115,-1.88906,-0.43446, 0.34208), [None, None]],
+    ('g-g', 'g-i'): [(-0.00054,-0.11566, 0.00368, 0.00231), [None, None]],
+    ('r-r', 'g-i'): [(-0.00246,-0.04508, 0.03284,-0.00687), [None, None]],
+    ('i-i', 'g-i'): [( 0.00575,-0.01171, 0.00538,-0.00139), [None, None]],
+    ('z-z', 'g-i'): [( 0.00139, 0.08180,-0.04120, 0.01009), [None, None]],
+    ('z-y', 'g-i'): [( 0.10287,-0.20444, 0.09858,-0.02299), [None, None]]
+}
+
 def pssdsstransform(filt, sdsscolor, color, lumclass=None, return_poly=False,
-                    mode='dpf'):
+                    mode='dpf', dir='pssdss'):
+    sign = 1
     if mode == 'dpf':
-        transformdict = pssdsstransformdictdpf
+        if dir != 'sdssps':
+            transformdict = pssdsstransformdictdpf
+            sign = 1
+        else:
+            transformdict = sdsspstransformdictdpf
+            sign = -1
     else:
         transformdict = pssdsstransformdict
     trans = transformdict[(filt, sdsscolor)]
@@ -140,7 +155,7 @@ def pssdsstransform(filt, sdsscolor, color, lumclass=None, return_poly=False,
     color2 = numpy.atleast_1d(color).copy()
     m = (color2 > ub) | (color2 < lb)
     color2[m] = numpy.nan
-    terms = numpy.atleast_1d(trans[0])
+    terms = numpy.atleast_1d(trans[0])*sign
     correction = numpy.polyval(numpy.flipud(terms), color2)
     if not return_poly:
         return correction
@@ -149,25 +164,44 @@ def pssdsstransform(filt, sdsscolor, color, lumclass=None, return_poly=False,
 def pssdsstransformall(sdss, mode='dpf'):
     """ Get PS magnitudes from SDSS magnitudes."""
     psmag = numpy.zeros((len(sdss), 5), dtype='f4')
+    try:
+        g, r, i, z = sdss['g'], sdss['r'], sdss['i'], sdss['z']
+    except:
+        g, r, i, z = sdss[:,1], sdss[:,2], sdss[:,3], sdss[:,4]
     if mode=='dpf':
-        gi = sdss['g']-sdss['i']
-        psmag[:,0] = sdss['g']+pssdsstransform('g-g', 'g-i', gi, mode=mode)
-        psmag[:,1] = sdss['r']+pssdsstransform('r-r', 'g-i', gi, mode=mode)
-        psmag[:,2] = sdss['i']+pssdsstransform('i-i', 'g-i', gi, mode=mode)
-        psmag[:,3] = sdss['z']+pssdsstransform('z-z', 'g-i', gi, mode=mode)
-        psmag[:,4] = sdss['z']+pssdsstransform('y-z', 'g-i', gi, mode=mode)
+        gi = g-i
+        psmag[:,0] = g + pssdsstransform('g-g', 'g-i', gi, mode=mode)
+        psmag[:,1] = r + pssdsstransform('r-r', 'g-i', gi, mode=mode)
+        psmag[:,2] = i + pssdsstransform('i-i', 'g-i', gi, mode=mode)
+        psmag[:,3] = z + pssdsstransform('z-z', 'g-i', gi, mode=mode)
+        psmag[:,4] = z + pssdsstransform('y-z', 'g-i', gi, mode=mode)
     else:
-        psmag[:,0] = sdss['g']+pssdsstransform('g-g','g-r',sdss['g']-sdss['r'],
-                                               mode=mode)
-        psmag[:,1] = sdss['r']+pssdsstransform('r-r','r-i',sdss['r']-sdss['i'],
-                                               mode=mode)
-        psmag[:,2] = sdss['i']+pssdsstransform('i-i','r-i',sdss['r']-sdss['i'],
-                                               mode=mode)
-        psmag[:,3] = sdss['z']+pssdsstransform('z-z','i-z',sdss['i']-sdss['z'],
-                                               mode=mode)
-        psmag[:,4] = sdss['z']+pssdsstransform('y-z','i-z',sdss['i']-sdss['z'],
-                                               mode=mode)
+        if mode != 'jttrans':
+            raise ValueError
+        psmag[:,0] = g + pssdsstransform('g-g','g-r', g-r, mode=mode)
+        psmag[:,1] = r + pssdsstransform('r-r','r-i', r-i, mode=mode)
+        psmag[:,2] = i + pssdsstransform('i-i','r-i', i-z, mode=mode)
+        psmag[:,3] = z + pssdsstransform('z-z','i-z', i-z, mode=mode)
+        psmag[:,4] = z + pssdsstransform('y-z','i-z', i-z, mode=mode)
     return psmag
+
+def sdsspstransformall(ps, mode='dpf'):
+    """ Get SDSS magnitudes from PS magnitudes."""
+    sdssmag = numpy.zeros((len(ps), 5), dtype='f4')
+    if mode != 'dpf':
+        raise ValueError('not supported')
+    try:
+        g, r, i, z, y = ps['g'], ps['r'], ps['i'], ps['z'], ps['y']
+    except:
+        g, r, i, z, y = ps[:,0], ps[:,1], ps[:,2], ps[:,3], ps[:,4]
+    gi = g-i
+    dir = 'sdssps'
+    sdssmag[:,0] = g + pssdsstransform('u-g', 'g-i', gi, mode=mode, dir=dir)
+    sdssmag[:,1] = g + pssdsstransform('g-g', 'g-i', gi, mode=mode, dir=dir)
+    sdssmag[:,2] = r + pssdsstransform('r-r', 'g-i', gi, mode=mode, dir=dir)
+    sdssmag[:,3] = i + pssdsstransform('i-i', 'g-i', gi, mode=mode, dir=dir)
+    sdssmag[:,4] = z + pssdsstransform('z-z', 'g-i', gi, mode=mode, dir=dir)
+    return sdssmag
 
 def pssdsstransformerr(sdss, cliperr=.2, mode='dpf'):
     """ Get PS magnitudes from SDSS magnitudes, with errors."""
