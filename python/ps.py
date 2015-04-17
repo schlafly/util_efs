@@ -79,6 +79,7 @@ flags2 = {
 'BRIGHT_NEIGHBOR_10'      : 0x00000400, # flux_n / (r^2 flux_p) > 10
 'DIFF_SELF_MATCH'  	  : 0x00000800, # positive detection match is probably this source 
 'SATSTAR_PROFILE'         : 0x00001000, # saturated source is modeled with a radial profile
+'DUPLICATE_EFS'           : 0x10000000, # hand marked bad images by EFS
 }
 for x,y in flags2.items():
     flags2[y] = x
@@ -114,7 +115,7 @@ pssdsstransformdictdpfpreabscal = {
     ('y-z', 'g-i'): [( 0.08149,-0.16694, 0.06876,-0.01441), [None, None]]
 }
 
-pssdsstransformdictdpf = {
+pssdsstransformdictdpfprepv1 = {
     ('g-g', 'g-i'): [( 0.00128,-0.10699, 0.00392, 0.00152), [None, None]],
     ('r-r', 'g-i'): [(-0.00518,-0.03561, 0.02359,-0.00447), [None, None]],
     ('i-i', 'g-i'): [( 0.00585,-0.01287, 0.00707,-0.00178), [None, None]],
@@ -122,13 +123,30 @@ pssdsstransformdictdpf = {
     ('y-z', 'g-i'): [( 0.10403,-0.18755, 0.08333,-0.01800), [None, None]]
 }
 
-sdsspstransformdictdpf = {
+sdsspstransformdictdpfprepv1 = {
     ('u-g', 'g-i'): [( 0.02115,-1.88906,-0.43446, 0.34208), [None, None]],
     ('g-g', 'g-i'): [(-0.00054,-0.11566, 0.00368, 0.00231), [None, None]],
     ('r-r', 'g-i'): [(-0.00246,-0.04508, 0.03284,-0.00687), [None, None]],
     ('i-i', 'g-i'): [( 0.00575,-0.01171, 0.00538,-0.00139), [None, None]],
     ('z-z', 'g-i'): [( 0.00139, 0.08180,-0.04120, 0.01009), [None, None]],
     ('z-y', 'g-i'): [( 0.10287,-0.20444, 0.09858,-0.02299), [None, None]]
+}
+
+pssdsstransformdictdpf = {
+    ('g-g', 'g-i'): [(-0.01527,-0.11856, 0.01192,-0.00056), [None, None]],
+    ('r-r', 'g-i'): [(-0.02196,-0.02674, 0.01675,-0.00305), [None, None]],
+    ('i-i', 'g-i'): [( 0.00320,-0.00540, 0.00228,-0.00091), [None, None]],
+    ('z-z', 'g-i'): [(-0.01950, 0.07486,-0.03459, 0.00783), [None, None]],
+    ('y-z', 'g-i'): [( 0.08835,-0.19293, 0.08769,-0.01891), [None, None]]
+}
+
+sdsspstransformdictdpf = {
+    ('u-g', 'g-i'): [( 0.04438,-2.26095,-0.13387, 0.27099), [None, None]],
+    ('g-g', 'g-i'): [(-0.01690,-0.13595, 0.01941,-0.00183), [None, None]],
+    ('r-r', 'g-i'): [(-0.02050,-0.03577, 0.02612,-0.00558), [None, None]],
+    ('i-i', 'g-i'): [( 0.00255,-0.00400, 0.00066,-0.00058), [None, None]],
+    ('z-z', 'g-i'): [(-0.01586, 0.07529,-0.03592, 0.00890), [None, None]],
+    ('z-y', 'g-i'): [( 0.08400,-0.20878, 0.10360,-0.02441), [None, None]]
 }
 
 def pssdsstransform(filt, sdsscolor, color, lumclass=None, return_poly=False,
@@ -334,10 +352,24 @@ def badflags_eam():
         badflags2 |= flags2[s]
     return badflags, badflags2
 
-def rdm2airmass(ra, dec, mjd_obs):
+def number_to_flags(flagsi=None, flags2i=None):
+    out = []
+    if flagsi is not None:
+        for x in xrange(32):
+            if (flagsi & 2**x) != 0:
+                out.append(flags[2**x])
+        print 'FLAGS: ' + ' '.join(out)
+    if flags2i is not None:
+        out = []
+        for x in xrange(32):
+            if (flags2i & 2**x) != 0:
+                out.append(flags2[2**x])
+        print 'FLAGS: ' + ' '.join(out)
+
+def rdm2airmass(ra, dec, mjd_obs, lat=20.7070999146, lon=-156.2559127815):
+    # lat, lon are the PS1 coordinates
+    # -30.1697, -70.8065 is CTIO
     import util_efs
-    lat = 20.7070999146
-    lon = -156.2559127815 # PS1 coordinates
     alt, az = util_efs.rdllmjd2altaz(ra, dec, lat, lon, mjd_obs)
     am = util_efs.alt2airmass(alt)
     m = (am < 0)

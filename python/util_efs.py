@@ -9,6 +9,7 @@ import matplotlib
 from matplotlib import pyplot
 import pdb
 from scipy import weave
+import scipy.ndimage.interpolation
 import cPickle as pickle
 import tempfile
 import pstats
@@ -22,6 +23,115 @@ def sample(obj, n):
     ind = random.sample(xrange(len(obj)),numpy.int(n))
     return obj[numpy.array(ind)]
 
+def match_radec_hp(r1, d1, r2, d2, rad=1./60./60.):
+    """Match two sets of coordinates together within a specified radius.
+
+    Matches two sets of coordinates together within a specified radius.  This
+    is less fancy than kdtree approaches, but I hope faster.  The idea is
+    just to take the points, assign them appropriate pixels, and do a brute
+    force match on each set of matching pixels.  This saves having to
+    rebuild the kdtree every time.
+
+    When one wants all the matches, or when the typical number of sources in
+    the match radius is close to one, it seems impossible that one can do 
+    better.
+
+    Args:
+        r1, d1: ra, dec of first set of data
+        r2, d2: ra, dec of second set of data
+        rad: maximum match radius, default 1"
+
+    Returns:
+        Details about the match: m1, m2, d12
+        m1, m2: indices into r1, r2, respectively, for matching pairs
+        d12: distance of match (")
+    """
+    raise ValueError('actually slower than match_radec in all cases')
+    # we need to pick the healpix size so that we are guaranteed
+    # that no matches fall outside one of the neighbors of a pixel
+    # rough guess is sqrt(pixel area) > rad
+    # pad out to sqrt(pixel area) > 1.5 * rad
+    # hprad = sqrt(4*pi/(12*nside**2))*180/pi (degrees)
+    # nside = sqrt((hprad * pi / 180)**2/4/pi)
+    nsideneeded = ((4*numpy.pi/12)**0.5)/(1.5*rad*numpy.pi/180.)
+    # need to choose first power of two smaller than this
+    nside = 2**int((numpy.floor(numpy.log(nsideneeded)/numpy.log(2))))
+    #print 'pixsize: ', numpy.sqrt(4*numpy.pi/(12*nside**2))*180/numpy.pi, nside
+    t1, p1 = lb2tp(r1, d1)
+    t2, p2 = lb2tp(r2, d2)
+    pix1 = healpy.ang2pix(nside, t1, p1)
+    pix2 = healpy.ang2pix(nside, t2, p2)
+    s1 = numpy.argsort(pix1)
+    us1 = numpy.argsort(s1)
+    pix1 = pix1[s1]
+    up1 = unique(pix1)
+    pix1u = pix1[up1]
+    np1 = up1-numpy.concatenate([[-1], up1[:-1]])
+    s2 = numpy.argsort(pix2)
+    us2 = numpy.argsort(s2)
+    pix2 = pix2[s2]
+    pix2n = healpy.get_all_neighbours(nside, t2[s2], p2[s2])
+    pix2 = numpy.vstack([pix2.reshape(1,-1), pix2n])
+    m1u2 = []
+    m2 = []
+    for p2 in pix2:
+        m1u20, m20 = match_sorted_unique(pix1u, p2)
+        m1u2.append(m1u20)
+        m2.append(m20)
+    m1u2 = numpy.concatenate(m1u2)
+    m2 = numpy.concatenate(m2)
+    
+    # how to get from any given star to its potential matches?
+    # pix1[i] corresponds to some star
+    # m1 should be identity, so
+    # pix1u[m1u[i]] is its match in pix1u
+    # ???
+    # 
+    # looking at some match i
+    # this match matches m2[i] and m1u2[i]]
+    # need to compare with pix1[up1[m1u2[i]]...pix1[up1[m1u2[i]]+np1[m1u2[i]]]
+
+    mm1 = []
+    mm2 = []
+    if False: # slow version
+        for i in xrange(len(m2)):
+            ind = up1[m1u2[i]]+numpy.arange(np1[m1u2[i]], dtype='i4')-np1[m1u2[i]]+1
+            if max(ind) >= len(r1):
+                pdb.set_trace()
+            mm1.append(ind)
+            mm2.append(m2[i]*numpy.ones(len(ind), dtype='i4'))
+        mm1 = numpy.concatenate(mm1)
+        mm2 = numpy.concatenate(mm2)
+    else:
+        mm1 = numpy.arange(numpy.sum(np1[m1u2]))
+        np12 = numpy.concatenate([[0], np1[m1u2[:-1]]])
+        mm1 -= numpy.repeat(numpy.cumsum(np12)-(up1[m1u2]-np1[m1u2]+1), np1[m1u2])
+        mm2 = numpy.repeat(m2, np1[m1u2])
+    #print mm1.shape, mm2.shape
+    # these are indices into the sorted list; what are the indices into the unsorted list?
+    d12 = gc_dist(r1[s1[mm1]], d1[s1[mm1]], r2[s2[mm2]], d2[s2[mm2]])
+    m = d12 < rad
+    d12 = d12[m]
+    mm1 = mm1[m]
+    mm2 = mm2[m]
+    return s1[mm1], s2[mm2], d12
+
+def match_radec_kdtree(r1, d1, r2, d2, rad=1./60./60.):
+    raise ValueError('astrometry.net is also better by ~3x')
+    uv1 = lb2uv(r1, d1)
+    uv2 = lb2uv(r2, d2)
+    #from scipy.spatial import cKDTree
+    #kdt = cKDTree(uv1)
+    #dist, idx = kdt.query(uv2, 1)
+    from scikits.ann import kdtree
+    tree = kdtree(uv2)
+    m1, _ = tree.knn(uv1, 1)
+    m1 = m1[:,0]		# First neighbor only
+
+    m2 = numpy.arange(len(r2), dtype='i4')
+    d12 = gc_dist(r1[m1], d1[m1], r2[m2], d2[m2])
+    m = d12 < rad
+    return m1[m], m2[m], d12[m]
 
 def unique(obj):
     """Gives an array indexing the unique elements in the sorted list obj.
@@ -143,17 +253,22 @@ def plothist_efs(dat, binsz=None, range=None):
 #    return hist(
 
 
-def svsol(u,s,vh,b):
+def svsol(u,s,vh,b): # N^2 time
     out = numpy.dot(numpy.transpose(u), b)
     s2 = 1./(s + (s == 0))*(s != 0)
     out = numpy.dot(numpy.diag(s2), out)
     out = numpy.dot(numpy.transpose(vh), out)
     return out
 
-def svd_variance(u, s, vh):
+def svd_variance(u, s, vh, no_covar=False):
     s2 = 1./(s + (s == 0))*(s != 0)
-    covar = numpy.dot(numpy.dot(numpy.transpose(vh), numpy.diag(s2)),
-                      numpy.transpose(u))
+#    covar = numpy.dot(numpy.dot(numpy.transpose(vh), numpy.diag(s2)),
+#                      numpy.transpose(u))
+    if no_covar: # computing the covariance matrix is expensive, n^3 time.  if we skip that, only n^2
+        return (numpy.array([ numpy.sum(vh.T[i,:]*s2*u.T[:,i]) for i in xrange(len(s2))]), 
+                numpy.nan)
+    covar = vh.T*s2.reshape(1,-1)
+    covar = numpy.dot(covar, u.T)
     var = numpy.diag(covar)
     return var, covar
 
@@ -670,8 +785,9 @@ def make_stats_usable(x):
     """ dumps and loads an ipython stats object to render it usable."""
     tf = tempfile.NamedTemporaryFile()
     x.dump_stats(tf.name)
+    stats = pstats.Stats(tf.name)
     tf.close()
-    return pstats.Stats(tf.name)
+    return stats
 
 
 # given some values val and a dictionary dict, create
@@ -916,7 +1032,9 @@ def tp2uv(t, p):
     z = numpy.cos(t)
     x = numpy.cos(p)*numpy.sin(t)
     y = numpy.sin(p)*numpy.sin(t)
-    return numpy.vstack([x, y, z]).transpose().copy()
+    return numpy.concatenate([q[...,numpy.newaxis] for q in (x, y, z)],
+                             axis=-1)
+    #return numpy.vstack([x, y, z]).transpose().copy()
     
 def lb2uv(r, d):
     return tp2uv(*lb2tp(r, d))
@@ -990,8 +1108,8 @@ def heal_rebin_mask(map, nside, mask, ring=True, nanbad=False):
         out[newmask == 0] = numpy.nan
     return out
 
-def heal2cart(heal, interp=True):
-    nside = healpy.get_nside(heal)
+def heal2cart(heal, interp=True, return_pts=False):
+    nside = healpy.get_nside(heal)#*(2 if interp else 1)
     owidth = 8*nside
     oheight = 4*nside-1
     dm,rm = numpy.mgrid[0:oheight,0:owidth]
@@ -1004,6 +1122,8 @@ def heal2cart(heal, interp=True):
         pix = healpy.ang2pix(nside, t, p)
         map = heal[pix]
     map = map.reshape((oheight, owidth))
+    if return_pts:
+        map = (map, numpy.sort(numpy.unique(rm)), numpy.sort(numpy.unique(dm)))
     return map
 
 def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
@@ -1192,18 +1312,27 @@ def match(a, b):
     if len(ua) != len(a):# or len(ub) != len(b):
         raise ValueError('All keys in a must be unique.')
     ind = numpy.searchsorted(a[sa], b)
-    m = (ind > 0) & (ind < len(a))
+    m = (ind >= 0) & (ind < len(a))
     matches = a[sa[ind[m]]] == b[m]
     m[m] &= matches
     return sa[ind[m]], numpy.flatnonzero(m)
+
+def match_sorted_unique(a, b):
+    ind = numpy.searchsorted(a, b)
+    m = (ind >= 0) & (ind < len(a))
+    matches = a[ind[m]] == b[m]
+    m[m] &= matches
+    return ind[m], numpy.flatnonzero(m)
 
 def setup_print(size=None, keys=None, scalefont=1., **kw):
     params = {'backend': 'ps',
               'axes.labelsize': 12*scalefont,
               'text.fontsize': 12*scalefont,
+              'font.size':12*scalefont,
               'legend.fontsize': 10*scalefont,
               'xtick.labelsize': 10*scalefont,
               'ytick.labelsize': 10*scalefont,
+              'axes.titlesize':18*scalefont,
               'text.usetex': True,
               }#'font.family': 'sans'}
     for key in kw:
@@ -1221,8 +1350,8 @@ def setup_print(size=None, keys=None, scalefont=1., **kw):
 def arrow(x, y, dx, dy, arrowstyle='->', mutation_scale=30, **kw):
     add_patch = pyplot.gca().add_patch
     FancyArrow = matplotlib.patches.FancyArrowPatch
-    add_patch(FancyArrow((x,y),(x+dx,y+dy), arrowstyle=arrowstyle,
-                         mutation_scale=mutation_scale, **kw))
+    return add_patch(FancyArrow((x,y),(x+dx,y+dy), arrowstyle=arrowstyle,
+                                mutation_scale=mutation_scale, **kw))
     
 def rebin(a, *args):
     """ Stolen from internet
@@ -1442,3 +1571,35 @@ def eclequ(lam, be):
     uve[:,1] = uv[:,1]*cos(e)-uv[:,2]*sin(e)
     uve[:,2] = uv[:,1]*sin(e)+uv[:,2]*cos(e)
     return uv2lb(uve)
+
+
+# stolen from internet
+def HMS2deg(ra='', dec=''):
+  RA, DEC, rs, ds = '', '', 1, 1
+  if dec:
+    D, M, S = [float(i) for i in dec.split()]
+    if str(D)[0] == '-':
+      ds, D = -1, abs(D)
+    deg = D + (M/60) + (S/3600)
+    DEC = deg*ds
+    #DEC = '{0}'.format(deg*ds)
+  
+  if ra:
+    H, M, S = [float(i) for i in ra.split()]
+    if str(H)[0] == '-':
+      rs, H = -1, abs(H)
+    deg = (H*15) + (M/4) + (S/240)
+    RA = deg*ds
+    #RA = '{0}'.format(deg*rs)
+  
+  if ra and dec:
+    return (RA, DEC)
+  else:
+    return RA or DEC
+
+def map_coordinates(grid, coord):
+    gridpts = grid[0]
+    gridcoord = grid[1]
+    outputcoordnorm = [numpy.interp(c, gc, numpy.arange(len(gc))) for c, gc in zip(coord, gridcoord)]
+    return scipy.ndimage.interpolation.map_coordinates(gridpts, outputcoordnorm,
+                           cval=0., mode='constant', order=1)

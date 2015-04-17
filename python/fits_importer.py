@@ -20,7 +20,7 @@ def fix_names(dtype, ra, dec):
     if ra is not '':
         names[names.index(ra)] = 'ra'
     if dec is not '':
-        names[names.index(ra)] = 'dec'
+        names[names.index(dec)] = 'dec'
     for i, n in enumerate(names):
         if keyword.iskeyword(n):
             names[i] = n+'_'
