@@ -1,137 +1,98 @@
-import random
-import numpy
-from scipy.stats.mstats import mquantiles
-from lsd import DB
-from lsd import bounds as lsdbounds
 import os
-import h5py
+import random
+import pdb
+import fnmatch
+import cPickle as pickle
+import numpy
 import matplotlib
 from matplotlib import pyplot
-import pdb
-from scipy import weave
-import scipy.ndimage.interpolation
-import cPickle as pickle
-import tempfile
-import pstats
-from astrometry.libkd.spherematch import match_radec
-from lsd.utils import gc_dist
-from itertools import izip
-import fnmatch
-import healpy
+# from astrometry.libkd.spherematch import match_radec
+from util_efs_c import max_bygroup, add_arr_at_ind
+
+
+# stolen from Mario Juric
+def gc_dist(lon1, lat1, lon2, lat2):
+    from numpy import sin, cos, arcsin, sqrt
+
+    lon1 = numpy.radians(lon1); lat1 = numpy.radians(lat1)
+    lon2 = numpy.radians(lon2); lat2 = numpy.radians(lat2)
+
+    return numpy.degrees(
+        2*arcsin(sqrt( (sin((lat1-lat2)*0.5))**2 + 
+                       cos(lat1)*cos(lat2)*(sin((lon1-lon2)*0.5))**2 )));
+
 
 def sample(obj, n):
     ind = random.sample(xrange(len(obj)),numpy.int(n))
     return obj[numpy.array(ind)]
 
-def match_radec_hp(r1, d1, r2, d2, rad=1./60./60.):
-    """Match two sets of coordinates together within a specified radius.
 
-    Matches two sets of coordinates together within a specified radius.  This
-    is less fancy than kdtree approaches, but I hope faster.  The idea is
-    just to take the points, assign them appropriate pixels, and do a brute
-    force match on each set of matching pixels.  This saves having to
-    rebuild the kdtree every time.
+def random_pts_on_sphere(n, mask=None):
+    import healpy
+    xyz = numpy.random.randn(n, 3)
+    l, b = uv2lb(xyz)
+    if mask is not None:
+        t, p = lb2tp(l, b)
+        nside = healpy.npix2nside(len(mask))
+        pix = healpy.ang2pix(nside, t, p)
+        m = (mask[pix] != 0)
+        l, b = l[m], b[m]
+    return l, b
 
-    When one wants all the matches, or when the typical number of sources in
-    the match radius is close to one, it seems impossible that one can do 
-    better.
 
-    Args:
-        r1, d1: ra, dec of first set of data
-        r2, d2: ra, dec of second set of data
-        rad: maximum match radius, default 1"
-
-    Returns:
-        Details about the match: m1, m2, d12
-        m1, m2: indices into r1, r2, respectively, for matching pairs
-        d12: distance of match (")
-    """
-    raise ValueError('actually slower than match_radec in all cases')
-    # we need to pick the healpix size so that we are guaranteed
-    # that no matches fall outside one of the neighbors of a pixel
-    # rough guess is sqrt(pixel area) > rad
-    # pad out to sqrt(pixel area) > 1.5 * rad
-    # hprad = sqrt(4*pi/(12*nside**2))*180/pi (degrees)
-    # nside = sqrt((hprad * pi / 180)**2/4/pi)
-    nsideneeded = ((4*numpy.pi/12)**0.5)/(1.5*rad*numpy.pi/180.)
-    # need to choose first power of two smaller than this
-    nside = 2**int((numpy.floor(numpy.log(nsideneeded)/numpy.log(2))))
-    #print 'pixsize: ', numpy.sqrt(4*numpy.pi/(12*nside**2))*180/numpy.pi, nside
-    t1, p1 = lb2tp(r1, d1)
-    t2, p2 = lb2tp(r2, d2)
-    pix1 = healpy.ang2pix(nside, t1, p1)
-    pix2 = healpy.ang2pix(nside, t2, p2)
-    s1 = numpy.argsort(pix1)
-    us1 = numpy.argsort(s1)
-    pix1 = pix1[s1]
-    up1 = unique(pix1)
-    pix1u = pix1[up1]
-    np1 = up1-numpy.concatenate([[-1], up1[:-1]])
-    s2 = numpy.argsort(pix2)
-    us2 = numpy.argsort(s2)
-    pix2 = pix2[s2]
-    pix2n = healpy.get_all_neighbours(nside, t2[s2], p2[s2])
-    pix2 = numpy.vstack([pix2.reshape(1,-1), pix2n])
-    m1u2 = []
-    m2 = []
-    for p2 in pix2:
-        m1u20, m20 = match_sorted_unique(pix1u, p2)
-        m1u2.append(m1u20)
-        m2.append(m20)
-    m1u2 = numpy.concatenate(m1u2)
-    m2 = numpy.concatenate(m2)
-    
-    # how to get from any given star to its potential matches?
-    # pix1[i] corresponds to some star
-    # m1 should be identity, so
-    # pix1u[m1u[i]] is its match in pix1u
-    # ???
-    # 
-    # looking at some match i
-    # this match matches m2[i] and m1u2[i]]
-    # need to compare with pix1[up1[m1u2[i]]...pix1[up1[m1u2[i]]+np1[m1u2[i]]]
-
-    mm1 = []
-    mm2 = []
-    if False: # slow version
-        for i in xrange(len(m2)):
-            ind = up1[m1u2[i]]+numpy.arange(np1[m1u2[i]], dtype='i4')-np1[m1u2[i]]+1
-            if max(ind) >= len(r1):
-                pdb.set_trace()
-            mm1.append(ind)
-            mm2.append(m2[i]*numpy.ones(len(ind), dtype='i4'))
-        mm1 = numpy.concatenate(mm1)
-        mm2 = numpy.concatenate(mm2)
-    else:
-        mm1 = numpy.arange(numpy.sum(np1[m1u2]))
-        np12 = numpy.concatenate([[0], np1[m1u2[:-1]]])
-        mm1 -= numpy.repeat(numpy.cumsum(np12)-(up1[m1u2]-np1[m1u2]+1), np1[m1u2])
-        mm2 = numpy.repeat(m2, np1[m1u2])
-    #print mm1.shape, mm2.shape
-    # these are indices into the sorted list; what are the indices into the unsorted list?
-    d12 = gc_dist(r1[s1[mm1]], d1[s1[mm1]], r2[s2[mm2]], d2[s2[mm2]])
-    m = d12 < rad
-    d12 = d12[m]
-    mm1 = mm1[m]
-    mm2 = mm2[m]
-    return s1[mm1], s2[mm2], d12
-
-def match_radec_kdtree(r1, d1, r2, d2, rad=1./60./60.):
-    raise ValueError('astrometry.net is also better by ~3x')
+def match_radec(r1, d1, r2, d2, rad=1./60./60., nneighbor=0, notself=False):
+    # warning: cKDTree has issues if there are large numbers of points
+    # at the exact same positions (it takes forever / reaches maximum
+    # recursion depth).
+    if notself and nneighbor > 0:
+        nneighbor += 1
     uv1 = lb2uv(r1, d1)
     uv2 = lb2uv(r2, d2)
-    #from scipy.spatial import cKDTree
-    #kdt = cKDTree(uv1)
-    #dist, idx = kdt.query(uv2, 1)
-    from scikits.ann import kdtree
-    tree = kdtree(uv2)
-    m1, _ = tree.knn(uv1, 1)
-    m1 = m1[:,0]		# First neighbor only
+    from scipy.spatial import cKDTree
+    tree = cKDTree(uv2)
+    dub = 2*numpy.sin(numpy.radians(rad)/2)
+    if nneighbor > 0:
+        d12, m2 = tree.query(uv1, nneighbor, distance_upper_bound=dub)
+        if nneighbor > 1:
+            m2 = m2.reshape(-1)
+            d12 = d12.reshape(-1)
 
-    m2 = numpy.arange(len(r2), dtype='i4')
-    d12 = gc_dist(r1[m1], d1[m1], r2[m2], d2[m2])
-    m = d12 < rad
+        m1 = numpy.arange(len(r1)*nneighbor, dtype='i4') // nneighbor
+        d12 = 2*numpy.arcsin(numpy.clip(d12 / 2, 0, 1))*180/numpy.pi
+        m = m2 < len(r2)
+    else:
+        tree1 = cKDTree(uv1)
+        res = tree.query_ball_tree(tree1, dub)
+        lens = [len(r) for r in res]
+        m2 = numpy.repeat(numpy.arange(len(r2), dtype='i4'), lens)
+        if len(m2) > 0:
+            m1 = numpy.concatenate([r for r in res if len(r) > 0])
+        else:
+            m1 = m2.copy()
+        d12 = gc_dist(r1[m1], d1[m1], r2[m2], d2[m2])
+        m = numpy.ones(len(m1), dtype='bool')
+    if notself:
+        m = m & (m1 != m2)
     return m1[m], m2[m], d12[m]
+
+
+def match2d(x1, y1, x2, y2, rad):
+    """Find all matches between x1, y1 and x2, y2 within radius rad."""
+    from scipy.spatial import cKDTree
+    xx1 = numpy.stack([x1, y1], axis=1)
+    xx2 = numpy.stack([x2, y2], axis=1)
+    tree1 = cKDTree(xx1)
+    tree2 = cKDTree(xx2)
+    res = tree1.query_ball_tree(tree2, rad)
+    lens = [len(r) for r in res]
+    m1 = numpy.repeat(numpy.arange(len(x1), dtype='i4'), lens)
+    if sum([len(r) for r in res]) == 0:
+        m2 = m1.copy()
+    else:
+        m2 = numpy.concatenate([r for r in res if len(r) > 0])
+    d12 = numpy.sqrt(numpy.sum((xx1[m1, :]-xx2[m2, :])**2, axis=1))
+    return m1, m2, d12
+
 
 def unique(obj):
     """Gives an array indexing the unique elements in the sorted list obj.
@@ -168,39 +129,19 @@ def unique_multikey(obj, keys):
     out[nobj-1] = True
     return numpy.sort(numpy.flatnonzero(out))
 
-def max_bygroup(val, ind):
-    out = numpy.zeros(len(ind), dtype=val.dtype)
-    code = """
-           #line 64 "util_efs.py"
-           int pind = 0;
-           for(int i=0; i<Nind[0]; i++) {
-               double maxval = val(pind);
-               for(int j=pind+1; j<ind(i)+1; j++) {
-                   maxval = maxval > val(j) ? maxval : val(j);
-               }
-               out(i) = maxval;
-               pind = ind(i)+1;
-           }
-           """
-    if max(ind) > len(val):
-        raise ValueError('Incompatible argument sizes.')
-    if len(ind) == 0:
-        return numpy.array([])
-    if min(ind) < 0:
-        raise ValueError('min(ind) must be >= 0')
-    weave.inline(code, ['val', 'ind', 'out'],
-                 type_converters=weave.converters.blitz, verbose=1)
-    return out
 
 def iqr(dat):
+    from scipy.stats.mstats import mquantiles
     quant = mquantiles(dat, (0.25, 0.75))
     return quant[1]-quant[0]
+
 
 def minmax(v, nan=False):
     v = numpy.asarray(v)
     if nan:
         return numpy.asarray([numpy.nanmin(v), numpy.nanmax(v)])
     return numpy.asarray([numpy.min(v), numpy.max(v)])
+
 
 class subslices:
     "Iterator for looping over subsets of an array"
@@ -224,14 +165,11 @@ class subslices:
         last = self.uind[self.ind]+1
         self.ind += 1
         return first, last
-#        return slice(first, self.uind[self.ind]+1)
-
-
-full_ps1_db = '/raid14/home/mjuric/lsd/full_ps1/lsd/db_20101203.1'
-sas_db = '/raid14/home/mjuric/lsd/db_20101203.1'
 
 
 def query_lsd(querystr, db=None, bounds=None, **kw):
+    import lsd
+    from lsd import DB, bounds as lsdbounds
     if db is None:
         db = os.environ['LSD_DB']
     if not isinstance(db, DB):
@@ -242,16 +180,6 @@ def query_lsd(querystr, db=None, bounds=None, **kw):
         bounds = lsdbounds.make_canonical(bounds)
     query = dbob.query(querystr, **kw)
     return query.fetch(bounds=bounds)
-
-
-def plothist_efs(dat, binsz=None, range=None):
-    if binsz is None:
-        binsz = 1.
-    if range is None:
-        range = [numpy.min(dat), numpy.max(dat)]
-    nbin = float(range[1]-range[0])
-#    return hist(
-
 
 def svsol(u,s,vh,b): # N^2 time
     out = numpy.dot(numpy.transpose(u), b)
@@ -275,6 +203,7 @@ def svd_variance(u, s, vh, no_covar=False):
 def writehdf5(dat, filename, dsname=None, mode='a'):
     if dsname == None:
         dsname = 'default'
+    import h5py
     f = h5py.File(filename, mode)
     try:
         f.create_dataset(dsname, data=dat)
@@ -284,6 +213,7 @@ def writehdf5(dat, filename, dsname=None, mode='a'):
         raise e
 
 def readhdf5(filename, dsname=None):
+    import h5py
     f = h5py.File(filename, 'r')
     if dsname is None:
         keys = f.keys()
@@ -471,6 +401,7 @@ def clipped_stats(v, clip=3, return_mask=False):
     
     Computes the median and SIQR for the vector, and excludes all
     samples outside of +/- siqr*(1.349*clip) of the median (i.e., +/-
+
     clip sigma).  Returns the mean and stdev of the remainder.
     
     Returns
@@ -482,7 +413,11 @@ def clipped_stats(v, clip=3, return_mask=False):
     v = v[numpy.isfinite(v)]
     if len(v) == 0:
         return numpy.nan, numpy.nan
+
+    if len(v) == 1:
+        return v[0], 0*v[0]
     
+    from scipy.stats.mstats import mquantiles
     (ql, med, qu) = mquantiles(v, (0.25, 0.5, 0.75))
     siqr = 0.5*(qu - ql)
 
@@ -492,7 +427,7 @@ def clipped_stats(v, clip=3, return_mask=False):
     v = v[mask].astype(numpy.float64)
     if len(v) <= 0:
         pdb.set_trace()
-    ret = numpy.mean(v), numpy.std(v)
+    ret = numpy.mean(v), numpy.std(v, ddof=1)
     if return_mask:
         ret = ret + (mask,)
     return ret
@@ -505,7 +440,7 @@ def ravel_index(coords, shape):
 	"""
 	idx = 0
 	ns = 1
-	for c, n in izip(reversed(coords), reversed(shape)):
+	for c, n in zip(reversed(coords), reversed(shape)):
 		idx += c * ns
 		ns *= n
 	return idx
@@ -533,10 +468,10 @@ def fasthist(x, first, num, binsz, weight=None, nchunk=10000000):
     return out
 
 def fasthist_aux(out, outdims, x, first, num, binsz, weight=None):
-    loc = [numpy.array(numpy.floor((i-f)//sz)+1, dtype='i4')
-           for i,f,sz in zip(x, first, binsz)]
     if weight is None:
         weight = numpy.ones(len(x[0]), dtype='u4')
+    loc = [numpy.array(numpy.floor((i-f)//sz)+1, dtype='i4')
+           for i,f,sz in zip(x, first, binsz)]
     loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in zip(loc, num)]
     flatloc = ravel_index(loc, outdims)
     return add_arr_at_ind(out, weight, flatloc)
@@ -629,13 +564,16 @@ class Scatter:
                     percentile_freq(self.hist_all[1:-1,:], [0.16, 0.5, 0.84],
                                     axis=1, rescale=[self.ye[0], self.ye[-1]])
 
-    def show(self, linecolor='k', **kw):
+    def show(self, linecolor='k', clipzero=False, **kw):
         hist = self.hist
         if self.conditional:
             coltot = (self.coltot + (self.coltot == 0))
         else:
             coltot = numpy.ones(len(self.coltot))
         dispim = hist / coltot.reshape((len(coltot), 1))
+        if clipzero:
+            m = dispim == 0
+            dispim[m] = numpy.min(dispim[~m])/2
         extent = [self.xe[0], self.xe[-1], self.ye[0], self.ye[-1]]
         if 'nograyscale' not in kw or not kw['nograyscale']:
             pyplot.imshow(dispim.T, extent=extent, interpolation='nearest',
@@ -730,7 +668,7 @@ def join_struct_arrays(arrays):
             newrecarray[name] = a[name]
     return newrecarray
 
-# Stolen from MJ
+
 def scatterplot(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
                 normalize=True, xbin=None, ybin=None, conditional=True,
                 log=False, **kw):
@@ -750,29 +688,10 @@ def make_normal_arr(x):
     return x
 
 
-def add_arr_at_ind(arr, adds, inds):
-    arr = make_normal_arr(arr)
-    adds = make_normal_arr(adds)
-    inds = make_normal_arr(inds)
-    code = """
-           for(int i=0; i<Nadds[0]; i++) {
-               arr(inds(i)) += adds(i);
-           }
-           """
-    if len(adds) != len(inds):
-        raise ValueError('Incompatible argument sizes.')
-    if len(adds) == 0:
-        return arr
-    assert (numpy.min(inds) >= 0 and numpy.max(inds) < len(arr)), \
-           'Invalid argument to add_arr_at_ind'
-    weave.inline(code, ['arr', 'adds', 'inds'],
-                 type_converters=weave.converters.blitz, verbose=1)
-    return arr
-
-
 def pickle_unpickle(x):
     """ Pickles and then unpickles the argument, returning the result.
     Intended to be used to verify that objects pickle successfully."""
+    import tempfile
     tf = tempfile.TemporaryFile()
     pickle.dump(x, tf)
     tf.seek(0)
@@ -783,6 +702,8 @@ def pickle_unpickle(x):
 
 def make_stats_usable(x):
     """ dumps and loads an ipython stats object to render it usable."""
+    import pstats
+    import tempfile
     tf = tempfile.NamedTemporaryFile()
     x.dump_stats(tf.name)
     stats = pstats.Stats(tf.name)
@@ -819,7 +740,8 @@ def ccd(mag, ind1, ind2, ind3, ind4, markersymbol=',', nozero=True,
         x = x[m]
         y = y[m]
     if pts or len(x) < 1000:
-        pyplot.plot(x, y, markersymbol) ; pyplot.xlim(xrange) ; pyplot.ylim(yrange)
+        pyplot.plot(x, y, markersymbol, **kwargs)
+        pyplot.xlim(xrange) ; pyplot.ylim(yrange)
         return
     if not contour:
         scatterplot(x, y, conditional=False, xrange=xrange, yrange=yrange,
@@ -837,13 +759,16 @@ def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(),
         x = x[m]
         y = y[m]
     if pts or len(x) < 1000:
-        pyplot.plot(x, y, markersymbol) ; pyplot.xlim(xrange) ; pyplot.ylim(yrange)
+        pyplot.plot(x, y, markersymbol, **kwargs)
+        pyplot.xlim(xrange)
+        pyplot.ylim(yrange)
         return
     if not contour:
-        scatterplot(x, y, conditional=False, xrange=xrange, yrange=yrange,
-                    norm=norm, **kwargs)
+        return scatterplot(x, y, conditional=False, 
+                           xrange=xrange, yrange=yrange,
+                           norm=norm, **kwargs)
     else:
-        contourpts(x, y, xrange=xrange, yrange=yrange, **kwargs)
+        return contourpts(x, y, xrange=xrange, yrange=yrange, **kwargs)
 
 def djs_iterstat(dat, invvar=None, sigrej=3., maxiter=10.,
                  prefilter=False, removenan=False, removemask=False):
@@ -932,11 +857,13 @@ def check_sorted(x):
         return True
     return numpy.all(x[1:len(x)] >= x[0:-1])
 
-def solve_lstsq(aa, bb, ivar, return_covar=False):
+def solve_lstsq(aa, bb, ivar, svdthresh=None, return_covar=False):
     d, t = numpy.dot, numpy.transpose
     atcinvb = d(t(aa), ivar*bb)
     atcinva = d(t(aa), ivar.reshape((len(ivar), 1))*aa)
     u,s,vh = numpy.linalg.svd(atcinva)
+    if svdthresh is not None:
+        s[s < svdthresh] = 0.
     par = svsol(u,s,vh,atcinvb)
     var, covar = svd_variance(u, s, vh)
     ret = (par, var)
@@ -944,11 +871,13 @@ def solve_lstsq(aa, bb, ivar, return_covar=False):
         ret = ret + (covar,)
     return ret
 
-def solve_lstsq_covar(aa, bb, icvar, return_covar=False):
+def solve_lstsq_covar(aa, bb, icvar, svdthresh=None, return_covar=False):
     d, t = numpy.dot, numpy.transpose
     atcinvb = d(t(aa), d(icvar,bb))
     atcinva = d(t(aa), d(icvar,aa))
     u,s,vh = numpy.linalg.svd(atcinva)
+    if svdthresh is not None:
+        s[s < svdthresh] = 0.
     par = svsol(u,s,vh,atcinvb)
     var, covar = svd_variance(u, s, vh)
     ret = (par, var)
@@ -1005,6 +934,7 @@ def weighted_quantile(x, weight=None, quant=[0.25, 0.5, 0.75], interp=False):
         weight = numpy.ones_like(x)
     weight = weight / numpy.float(numpy.sum(weight))
     s = numpy.argsort(x)
+    weight = weight[s]
     if interp:
         weight1 = numpy.cumsum(weight)
         weight2 = 1.-(numpy.cumsum(weight[::-1])[::-1])
@@ -1049,7 +979,7 @@ def uv2tp(uv):
 def xyz2tp(x, y, z):
     norm = numpy.sqrt(x**2+y**2+z**2)
     t = numpy.arccos(z/norm)
-    p = numpy.arctan2(x/norm, y/norm)
+    p = numpy.arctan2(y/norm, x/norm)
     return t, p
 
 def uv2lb(uv):
@@ -1059,6 +989,12 @@ def xyz2lb(x, y, z):
     return tp2lb(*xyz2tp(x, y, z))
 
 def lbr2xyz_galactic(l, b, re, r0=8.5):
+    """This seems to be my made up right-handed coordinate system.
+    It's not the usual choice.  x increases from the GC to the Earth,
+    y increases toward l=-90, and z increases toward the NGC.  Galactic
+    UVW systems all have y increasing toward l=90 (direction of Galactic
+    rotation).  They can alternatively be left handed and have U increasing
+    toward the Galactic anticenter."""
     l, b = numpy.radians(l), numpy.radians(b)
     z = re * numpy.sin(b)
     x = r0 - re*numpy.cos(l)*numpy.cos(b)
@@ -1066,24 +1002,51 @@ def lbr2xyz_galactic(l, b, re, r0=8.5):
     return x, y, z
 
 def xyz_galactic2lbr(x, y, z, r0=8.5):
+    """See note about this coordinate system in lbr2xyz_galactic."""
     xe = r0-x
     re = numpy.sqrt(xe**2+y**2+z**2)
     b = numpy.degrees(numpy.arcsin(z / re))
     l = numpy.degrees(numpy.arctan2(-y, xe)) % 360.
     return l, b, re
 
+
 def xyz2rphiz(x, y, z):
     r = numpy.sqrt(x**2+y**2)
     phi = numpy.degrees(numpy.arctan2(y, x))
     return r, phi, z
-    
+
+
+# should write a lbr2uvw for the right handed coordinate system.
+# galpy apparently uses the left handed coordinate system, though.
+
+def lbr2uvw_galactic(l, b, re):
+    """Right handed, U increasing toward the GC, V increasing toward l=90,
+    W increasing toward the NGC.  Origin at the earth."""
+
+    l, b = numpy.radians(l), numpy.radians(b)
+    w = re*numpy.sin(b)
+    u = re*numpy.cos(l)*numpy.cos(b)
+    v = re*numpy.sin(l)*numpy.cos(b)
+    # very familiar!
+    return u, v, w
+
+
+def uvw_galactic2lbr(u, v, w):
+    re = numpy.sqrt(u**2+v**2+w**2)
+    b = numpy.degrees(numpy.arcsin(w/re))
+    l = numpy.degrees(numpy.arctan2(v, u)) % 360.
+    return l, b, re
+
+
 def healgen(nside):
+    import healpy
     return healpy.pix2ang(nside, numpy.arange(12*nside**2))
 
 def healgen_lb(nside):
     return tp2lb(*healgen(nside))
 
 def heal_rebin(map, nside, ring=True):
+    import healpy
     if ring:
         map = healpy.reorder(map, r2n=True)
     if map.dtype.name == 'bool':
@@ -1109,13 +1072,14 @@ def heal_rebin_mask(map, nside, mask, ring=True, nanbad=False):
     return out
 
 def heal2cart(heal, interp=True, return_pts=False):
+    import healpy
     nside = healpy.get_nside(heal)#*(2 if interp else 1)
     owidth = 8*nside
     oheight = 4*nside-1
     dm,rm = numpy.mgrid[0:oheight,0:owidth]
     rm = 360.-(rm+0.5) / float(owidth) * 360.
-    dm = 90. - (dm+0.5) / float(oheight) * 180.
-    t, p = lb2tp(rm.flatten(), dm.flatten())
+    dm = -90. + (dm+0.5) / float(oheight) * 180.
+    t, p = lb2tp(rm.ravel(), dm.ravel())
     if interp:
         map = healpy.get_interp_val(heal, t, p)
     else:
@@ -1126,10 +1090,11 @@ def heal2cart(heal, interp=True, return_pts=False):
         map = (map, numpy.sort(numpy.unique(rm)), numpy.sort(numpy.unique(dm)))
     return map
 
+
 def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
            min=None, max=None, mask_nan=False,
-           interp_healpy=True, log=False, center_gal=False, color=False,
-           return_handler=False,
+           interp_healpy=True, log=False, center_gal=False, center_l=None, color=False,
+           return_handler=False, contour=None,
            **kwargs):
     if xpts is not None and ypts is not None:
         dx = numpy.median(xpts[1:]-xpts[:-1])
@@ -1142,7 +1107,9 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
             im = im.T
         else:
             im = numpy.transpose(im, axes=[1, 0, 2])
+    if 'origin' not in kwargs:
         kwargs['origin'] = 'lower'
+    #kwargs['origin'] = 'upper'
     if 'aspect' not in kwargs:
         kwargs['aspect'] = 'auto'
     if 'interpolation' not in kwargs:
@@ -1150,8 +1117,10 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
     if 'cmap' not in kwargs:
         kwargs['cmap'] = 'binary'
     if isinstance(kwargs['cmap'], str):
-        kwargs['cmap'] = matplotlib.cm.get_cmap(kwargs['cmap'])
+        from copy import deepcopy
+        kwargs['cmap'] = deepcopy(matplotlib.cm.get_cmap(kwargs['cmap']))
     oneim = im if not color else im[:,0]
+    import healpy
     if (len(oneim.shape) == 1) and healpy.isnpixok(len(oneim)):
         if not color:
             im = heal2cart(im, interp=interp_healpy)
@@ -1164,16 +1133,25 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
                     outim = numpy.zeros(oneim.shape+(ncolor,))
                 outim[:,:,i] = oneim
             im = outim
-        if not center_gal:
+        if center_gal and center_l is not None:
+            raise ValueError('May only set one of center_gal, center_l')
+        if center_l is None:
+            if not center_gal:
+                center_l = 180
+            else:
+                center_l = 0
+        if center_l == 180:
             kwargs['extent'] = ((360, 0, -90, 90))
         else:
+            left_l = (center_l - 180) % 360.
+            # print left_l
             if not color:
-                im = numpy.roll(im, im.shape[1]/2, axis=1)
+                im = numpy.roll(im, numpy.int((im.shape[1]*left_l)/360), axis=1)
             else:
                 ncolor = im.shape[-1]
                 for i in numpy.arange(ncolor,dtype='i4'):
-                    im[:,:,i] = numpy.roll(im[:,:,i], im.shape[1]/2, axis=1)
-            kwargs['extent'] = ((180, -180, -90, 90))
+                    im[:,:,i] = numpy.roll(im[:,:,i], numpy.int(im.shape[1]*left_l/360), axis=1)
+            kwargs['extent'] = (left_l, left_l - 360., -90, 90)
     if range is not None:
         if min is not None or max is not None:
             raise ValueError('Can not set both range and min/max')
@@ -1191,13 +1169,19 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
     else:
         kwargs['cmap'].set_bad('lightblue', 0)
     updatecolorscale = kwargs.pop('updatecolorscale', False)
-    out = pyplot.imshow(im, **kwargs)
+    if contour is None:
+        out = pyplot.imshow(im, **kwargs)
+    else:
+        out = pyplot.contour(im, levels=contour, **kwargs)
+        pyplot.xlim(kwargs['extent'][0:2])
+        pyplot.ylim(kwargs['extent'][2:4])
     if xrange is not None:
         pyplot.xlim(xrange)
     if yrange is not None:
         pyplot.ylim(yrange)
-    events = EventHandlerImshow(pyplot.gcf(), out,
-                                updatecolorscale=updatecolorscale)
+    if contour is None:
+        events = EventHandlerImshow(pyplot.gcf(), out,
+                                    updatecolorscale=updatecolorscale)
     if return_handler:
         out = (out, events)
     return out
@@ -1271,13 +1255,13 @@ def contourpts(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
                   xrange=xrange, yrange=yrange, normalize=normalize,
                   conditional=False)
      if levels is None:
-         maximage = numpy.float(numpy.max(sc.hist))
+         maximage = numpy.float(numpy.max(sc.hist*sc.norm))
          if log:
              if logspace is None:
                  levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
-                                (numpy.log10(maximage)-logmin)/nlevels)
+                                (numpy.log10(maximage)-logmin)/nlevels)/sc.norm
              else:
-                 levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))
+                 levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))[::-1]/sc.norm
          else:
              levels = (numpy.arange(nlevels)+minlevel)*maximage/nlevels
 
@@ -1324,23 +1308,26 @@ def match_sorted_unique(a, b):
     m[m] &= matches
     return ind[m], numpy.flatnonzero(m)
 
+def setup_tex():
+    from matplotlib import rc
+    rc('text', usetex=True)
+    rc('font', family='serif')
+    rc('font', serif=['Computer Modern'])
+
 def setup_print(size=None, keys=None, scalefont=1., **kw):
     params = {'backend': 'ps',
               'axes.labelsize': 12*scalefont,
-              'text.fontsize': 12*scalefont,
               'font.size':12*scalefont,
               'legend.fontsize': 10*scalefont,
               'xtick.labelsize': 10*scalefont,
               'ytick.labelsize': 10*scalefont,
               'axes.titlesize':18*scalefont,
-              'text.usetex': True,
-              }#'font.family': 'sans'}
+              }
     for key in kw:
         params[key] = kw[key]
     if keys is not None:
         for key in keys:
             params[key] = keys[key]
-    from matplotlib import pyplot
     oldparams = dict(pyplot.rcParams.items())
     pyplot.rcParams.update(params)
     if size is not None:
@@ -1380,7 +1367,9 @@ def data2map(data, l, b, weight=None, nside=512, finiteonly=True):
         data = data[m]
         l = l[m]
         b = b[m]
+        weight = weight[m]
     t, p = lb2tp(l, b)
+    import healpy
     pix = healpy.ang2pix(nside, t, p)
     out = numpy.zeros(12*nside**2)
     wmap = numpy.zeros_like(out)
@@ -1389,8 +1378,107 @@ def data2map(data, l, b, weight=None, nside=512, finiteonly=True):
     out = out / (wmap + (wmap == 0))
     return out, wmap
 
+
+def paint_map(r, d, dat, rad, weight=None, nside=512):
+    import healpy
+    npix = 12*nside**2
+    vec = healpy.ang2vec(*lb2tp(r, d))
+    map = numpy.zeros(npix)
+    wmap = numpy.zeros(npix)
+    if weight is None:
+        weight = numpy.ones(len(dat), dtype='i4')
+    for v, d, w in zip(vec, dat, weight):
+        pix = healpy.query_disc(nside, v, rad*numpy.pi/180.)
+        map[pix] += d
+        wmap[pix] += w
+    map = map / (wmap + (wmap == 0))
+    return map, wmap
+
+
+def bindatan(coord, dat, weight=None, npix=None, ranges=None, bins=None):
+    m = numpy.logical_and.reduce([numpy.isfinite(c) for c in coord])
+    ranges0 = []
+    pts = []
+    flips = []
+    for i in range(len(coord)):
+        trange = None if ranges is None else ranges[i]
+        tbin = None if bins is None else bins[i]
+        tnpix = None if npix is None else npix[i]
+        trange, tpts, tflip = make_bins(coord[i], trange, tbin, tnpix)
+        ranges0.append(trange)
+        pts.append(tpts)
+        flips.append(tflip)
+    bins = [numpy.median(tpts[1:]-tpts[0:-1]) for tpts in pts]
+    ranges = ranges0
+
+    if weight is None:
+        weight = numpy.ones(len(dat))
+    hist_all = fasthist(coord, [tpts[0] for tpts in pts],
+                        [len(tpts)-1 for tpts in pts],
+                        [tpts[1]-tpts[0] for tpts in pts],
+                        weight=weight*dat)
+    whist_all = fasthist(coord, [tpts[0] for tpts in pts],
+                         [len(tpts)-1 for tpts in pts],
+                         [tpts[1]-tpts[0] for tpts in pts],
+                         weight=weight)
+    for i in range(len(flips)):
+        if flips[i]:
+            pts[i] = pts[i][::-1].copy()
+            hist_all = numpy.flip(hist_all, i)
+            whist_all = numpy.flip(whist_all, i)
+            ranges[i] = [r for r in reversed(ranges[i])]
+    ptscen = [(tpts[:-1]+tpts[1:])/2. for tpts in pts]
+    return (hist_all/(whist_all + (whist_all == 0)), whist_all.copy(),
+            ptscen)
+
+
 def bindata(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
             yrange=None, xbin=None, ybin=None):
+    # could replace with call to bindatan
+    m = numpy.isfinite(x) & numpy.isfinite(y)
+    xrange, xpts, flipx = make_bins(x[m], xrange, xbin, xnpix)
+    yrange, ypts, flipy = make_bins(y[m], yrange, ybin, ynpix)
+    xbin = numpy.median(xpts[1:]-xpts[0:-1])
+    ybin = numpy.median(ypts[1:]-ypts[0:-1])
+
+    if weight is None:
+        weight = numpy.ones(len(dat))
+    hist_all = fasthist((x,y), (xpts[0], ypts[0]),
+                        (len(xpts)-1, len(ypts)-1),
+                        (xpts[1]-xpts[0], ypts[1]-ypts[0]),
+                        weight=weight*dat)
+    whist_all = fasthist((x,y), (xpts[0], ypts[0]),
+                         (len(xpts)-1, len(ypts)-1),
+                         (xpts[1]-xpts[0], ypts[1]-ypts[0]),
+                         weight=weight)
+    if flipx:
+        xpts = xpts[::-1].copy()
+        hist_all = hist_all[::-1,:].copy()
+        whist_all = whist_all[::-1,:].copy()
+        xrange = [r for r in reversed(xrange)]
+    if flipy:
+        ypts = ypts[::-1].copy()
+        hist_all = hist_all[:,::-1].copy()
+        whist_all = whist_all[:,::-1].copy()
+        yrange = [r for r in reversed(yrange)]
+    return (hist_all/(whist_all + (whist_all == 0)), whist_all,
+            (xpts[:-1]+xpts[1:])/2., (ypts[:-1]+ypts[1:])/2.)
+
+def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None, 
+                showweight=False, log=False, **kw):
+    im, wim, xpts, ypts = bindata(x, y, dat, xrange=xrange, yrange=yrange,
+                                  **kw)
+    if showweight:
+        im = wim
+    imshow(im[1:-1,1:-1], xpts, ypts, xrange=xrange, yrange=yrange, 
+           min=min, max=max, log=log)
+
+
+def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
+            yrange=None, xbin=None, ybin=None, pointcut=1, cmap='jet', log=False,
+            vmin=None, vmax=None, showpts=True, contour=True, nlevels=6, 
+            logcontour=False, logspace=None, logmin=0, levels=None, minlevel=1, 
+            mask_nan=False, colors='black', **kw):
     m = numpy.isfinite(x) & numpy.isfinite(y)
     xrange, xpts, flipx = make_bins(x[m], xrange, xbin, xnpix)
     yrange, ypts, flipy = make_bins(y[m], yrange, ybin, ynpix)
@@ -1406,13 +1494,47 @@ def bindata(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
                          (len(xpts)-1, len(ypts)-1),
                          (xpts[1]-xpts[0], ypts[1]-ypts[0]),
                          weight=weight)
-    return (hist_all/(whist_all + (whist_all == 0)), whist_all,
-            xpts[:-1]+xbin/2., ypts[:-1]+ybin/2.)
+    count_hist = fasthist((x, y), (xpts[0], ypts[0]),
+                          (len(xpts)-1, len(ypts)-1),
+                          (xpts[1]-xpts[0], ypts[1]-ypts[0]),
+                          weight=numpy.ones(len(dat)))
 
-def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None, **kw):
-    im, wim, xpts, ypts = bindata(x, y, dat, xrange=xrange, yrange=yrange,
-                                  **kw)
-    imshow(im, xpts, ypts, xrange=xrange, yrange=yrange, min=min, max=max)
+    loc = [numpy.array(numpy.floor((i-f)//sz)+1, dtype='i4')
+           for i,f,sz in zip((x, y), (xpts[0], ypts[0]), (xpts[1]-xpts[0], ypts[1]-ypts[0]))]
+    loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in 
+           zip(loc, (len(xpts)-1, len(ypts)-1))]
+    
+    
+    # uhh, dumbest thing is max one point per bin
+    m = count_hist <= pointcut
+    hist_all = hist_all / (whist_all + (whist_all == 0.))
+    hist_all[m] = numpy.nan
+    if vmin is None:
+        vmin = numpy.nanmin(hist_all)
+    if vmax is None:
+        vmax = numpy.nanmax(hist_all)
+    ret = imshow(hist_all[1:-1,1:-1], xpts[:-1]+xbin/2., ypts[:-1]+ybin/2., xrange=xrange, yrange=yrange, cmap=cmap, log=log, vmin=vmin, vmax=vmax, origin='lower', mask_nan=mask_nan)
+    # pyplot.draw()
+    if showpts:
+        # need to find the points that were in a bin with only 1 point.
+        m = ~numpy.isfinite(hist_all[loc])
+        ret = pyplot.scatter(x[m], y[m], c=dat[m], edgecolor='none', vmin=vmin, vmax=vmax, cmap=cmap, **kw)
+    if contour:
+        if levels is None:
+            maximage = numpy.float(numpy.max(count_hist[1:-1,1:-1]))
+            if logcontour:
+                if logspace is None:
+                    levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
+                                   (numpy.log10(maximage)-logmin)/nlevels)
+                else:
+                    levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))
+            else:
+                levels = (numpy.arange(nlevels)+minlevel)*maximage/nlevels
+
+        pyplot.contour(count_hist[1:-1,1:-1].T, 
+                       extent=[xpts[0], xpts[-1], ypts[0], ypts[-1]],
+                       colors=colors, levels=levels)
+    return ret
 
 def cg_to_fits(cg, fixub=True):
     dtype = cg.dtype
@@ -1436,9 +1558,37 @@ def cg_to_fits(cg, fixub=True):
             newbytes = '4'
         newformat = format[:uloc]+'i'+newbytes
         new = numpy.array(orig, newformat)
-        cg.drop_column(colname)
-        cg.add_column(colname, new)
+        from lsd import colgroup
+        if isinstance(cg, colgroup.ColGroup):
+            cg.drop_column(colname)
+            cg.add_column(colname, new)
+        else:
+            from matplotlib.mlab import rec_append_fields, rec_drop_fields
+            # slow for big structures; should do all the columns at once
+            # for the ndarray case.
+            cg = rec_append_fields(rec_drop_fields(cg, [colname]), [colname],
+                                   [new])
     return cg
+
+
+def ndarraytofits(nd):
+    dtype = nd.dtype
+    newdtype = []
+    for col in dtype.descr:
+        col = list(col)
+        format = col[1]
+        uloc = format.find('u')
+        if uloc != -1:
+            col[1] = format[:uloc] + 'i' + format[uloc+1:]
+        uloc = format.find('b')
+        if uloc != -1:
+            col[1] = format[:uloc] + 'i' + format[uloc+1:]
+        newdtype.append(tuple(col))
+    newnd = numpy.zeros(len(nd), dtype=newdtype)
+    for col in nd.dtype.names:
+        newnd[col] = nd[col]
+    return newnd
+
 
 def fitstondarray(fits, lower=False):
     from copy import deepcopy
@@ -1450,6 +1600,11 @@ def fitstondarray(fits, lower=False):
         names = [n.lower() for n in names]
         nd.dtype.names = names
     return nd
+
+
+def stirling_approx(n):
+    return n*numpy.log(n) - n + numpy.log(n)/2. + numpy.log(2*numpy.pi)/2.
+
 
 def mjd2lst(mjd, lng):
     """ Stolen from ct2lst.pro in IDL astrolib.
@@ -1465,9 +1620,6 @@ def mjd2lst(mjd, lng):
     lst = (theta + lng)/15.
     lst = lst % 24.
     return lst
-
-def stirling_approx(n):
-    return n*numpy.log(n) - n + numpy.log(n)/2. + numpy.log(2*numpy.pi)/2.
 
 # PS1 lat/lon: 20.71552, -156.169
 def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
@@ -1574,23 +1726,51 @@ def eclequ(lam, be):
 
 
 # stolen from internet
-def HMS2deg(ra='', dec=''):
+def HMS2deg(ra='', dec='', delimiter=None):
   RA, DEC, rs, ds = '', '', 1, 1
   if dec:
-    D, M, S = [float(i) for i in dec.split()]
+    D, M, S = [float(i) for i in dec.split(delimiter)]
     if str(D)[0] == '-':
       ds, D = -1, abs(D)
     deg = D + (M/60) + (S/3600)
     DEC = deg*ds
-    #DEC = '{0}'.format(deg*ds)
   
   if ra:
-    H, M, S = [float(i) for i in ra.split()]
+    H, M, S = [float(i) for i in ra.split(delimiter)]
     if str(H)[0] == '-':
       rs, H = -1, abs(H)
     deg = (H*15) + (M/4) + (S/240)
-    RA = deg*ds
-    #RA = '{0}'.format(deg*rs)
+    RA = deg*rs
+  
+  if ra and dec:
+    return (RA, DEC)
+  else:
+    return RA or DEC
+
+# stolen from internet
+def deg2HMS(ra='', dec='', round=False, delimiter=' '):
+  RA, DEC, rs, ds = '', '', '', ''
+  if dec:
+    if str(dec)[0] == '-':
+      ds, dec = '-', abs(dec)
+    deg = int(dec)
+    decM = abs(int((dec-deg)*60))
+    if round:
+      decS = int((abs((dec-deg)*60)-decM)*60)
+    else:
+      decS = (abs((dec-deg)*60)-decM)*60
+    DEC = '{0}{1:02}{d}{2:02}{d}{3:06.3f}'.format(ds, deg, decM, decS, d=delimiter)
+  
+  if ra:
+    if str(ra)[0] == '-':
+      rs, ra = '-', abs(ra)
+    raH = int(ra/15)
+    raM = int(((ra/15)-raH)*60)
+    if round:
+      raS = int(((((ra/15)-raH)*60)-raM)*60)
+    else:
+      raS = ((((ra/15)-raH)*60)-raM)*60
+    RA = '{0}{1:02}{d}{2:02}{d}{3:07.4f}'.format(rs, raH, raM, raS, d=delimiter)
   
   if ra and dec:
     return (RA, DEC)
@@ -1601,5 +1781,120 @@ def map_coordinates(grid, coord):
     gridpts = grid[0]
     gridcoord = grid[1]
     outputcoordnorm = [numpy.interp(c, gc, numpy.arange(len(gc))) for c, gc in zip(coord, gridcoord)]
-    return scipy.ndimage.interpolation.map_coordinates(gridpts, outputcoordnorm,
-                           cval=0., mode='constant', order=1)
+    from scipy.ndimage import interpolation
+    return interpolation.map_coordinates(gridpts, outputcoordnorm,
+                                         cval=0., mode='constant', order=1)
+
+def hsv_to_rgb(hsv, rotate=0.5):
+    """Convert HSV to RGB.
+
+    Wrapper for matplotlib.colors.hsv_to_rgb, with the following change:
+    if saturation is negative, rotate hue by rotate.  We also tune down
+    the value of pixels with low saturation, so that in black and white equal
+    value pixels will be roughly the same shade of gray.
+
+    Args:
+        hsv (ndarray[*,3]): hsv color array
+        rotate (float): amount to rotate negative saturation by
+
+    Returns:
+        ndarray[*,3] rgb color array
+    """
+    from matplotlib import colors
+    hsv = hsv.copy()
+    m = hsv[...,1] < 0.
+    hsv[m,0] = (hsv[m,0] + rotate) % 1.
+    hsv[m,1] = -hsv[m,1]
+    hsv[...,2] = (hsv[...,2] * (0.5 + hsv[...,1]/2.))
+    return colors.hsv_to_rgb(hsv)
+
+
+def mjd2utc(mjd):
+    from astropy.time import Time
+    t = Time(mjd, format='mjd')
+    return t.isot
+
+
+def utc2mjd(utc):
+    from astropy.time import Time
+    t = Time(utc, format='isot', scale='utc')
+    return t.mjd
+
+
+def repeated_linear(aa, bb, cinv, guess=None, damp=3):
+    """Fit linear function with pseudo-Huber loss function via repeated SVD."""
+    
+    # Better to do this by giving a Jacobian to scipy.optimze.least_squares
+    from scipy import sparse
+    aa = numpy.sqrt(cinv).dot(aa)
+    bb = numpy.sqrt(cinv).dot(bb)
+
+    def chi(x):
+        chi0 = damper(bb-aa.dot(x), damp)
+        return chi0
+
+    def jacobian(x):
+        dd = damper_deriv(bb - aa.dot(x), damp)
+        dd = sparse.diags(dd, 0)
+        return -dd.dot(aa)
+
+    if guess is None:
+        guess = numpy.zeros(aa.shape[1])
+
+    from scipy.optimize import least_squares
+    res = least_squares(chi, guess, jac=jacobian)
+    atcinva = res['jac'].T.dot(res['jac'])
+    u, s, vh = numpy.linalg.svd(numpy.array(atcinva.todense()))
+    s2 = s.copy()
+    svdthresh = 1e-10
+    s2[s < svdthresh] = 0.
+    var, _ = svd_variance(u, s2, vh, no_covar=True)
+    return res['x'].copy(), var, res
+
+
+"""
+Old problematic code.
+    import scipy
+    if guess is None:
+        guess = numpy.zeros(aa.shape[1])
+    aa = numpy.sqrt(cinv).dot(aa)
+    bb = numpy.sqrt(cinv).dot(bb)
+    for i in range(100):
+        resid = bb-aa.dot(guess)
+        dresid = damper(resid, damp=damp)
+        d1 = damper_deriv(resid, damp=damp)
+        d1 = scipy.sparse.diags(d1, 0)
+        d2 = damper_deriv(resid, damp=damp, derivnum=2)*dresid
+        d2 = scipy.sparse.diags(d2, 0)
+        atcinva = aa.T.dot((d1**2-d2).dot(aa))
+        atcinvb = aa.T.dot(d1.dot(dresid))
+        step = scipy.sparse.linalg.cg(atcinva, atcinvb, tol=1e-9)[0]
+        guess += step
+        print(guess[-1], numpy.max(numpy.abs(step)))
+        pdb.set_trace()
+        if numpy.allclose(step, 0):
+            break
+        if i == 99:
+            print('Not enough iterations!')
+    u, s, vh = numpy.linalg.svd(numpy.array(atcinva.todense()))
+    s2 = s.copy()
+    svdthresh = 1e-10
+    s2[s < svdthresh] = 0.
+    step = svsol(u, s2, vh, atcinvb)
+    var, _ = svd_variance(u, s2, vh, no_covar=True)
+    return guess, var
+"""
+
+
+def damper(chi, damp):
+    """Pseudo-Huber loss function."""
+    return 2*damp*numpy.sign(chi)*(numpy.sqrt(1+numpy.abs(chi)/damp)-1)
+    # return chi/numpy.sqrt(1+numpy.abs(chi)/damp)
+
+
+def damper_deriv(chi, damp, derivnum=1):
+    """Derivative of the pseudo-Huber loss function."""
+    if derivnum == 1:
+        return (1+numpy.abs(chi)/damp)**(-0.5)
+    if derivnum == 2:
+        return -0.5*numpy.sign(chi)/damp*(1+numpy.abs(chi)/damp)**(-1.5)

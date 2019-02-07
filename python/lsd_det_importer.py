@@ -1,47 +1,41 @@
 #!/usr/bin/env python
 
-import pyfits, argparse, os, keyword, numpy
+import argparse, os, keyword, numpy, pdb
 from lsd import DB
-import secat
 from matplotlib.mlab import rec_append_fields
 import lsd
 import lsd.smf
 
-table_def_det = \
-{
-    'filters' : { 'complevel': 5, 'complib': 'blosc', 'fletcher32': False },
-    'schema' : {
-           'main' : {
-                   'columns': [ ('det_id', 'u8'),
-                                ('exp_id', 'u8'),
-                                ('cached', 'bool'),
-                              ],
-                   'primary_key' : 'det_id',
+table_def_det = {
+    'filters': {'complevel': 5, 'complib': 'blosc', 'fletcher32': False},
+    'schema': {
+           'main': {
+                   'columns': [('det_id', 'u8'),
+                               ('exp_id', 'u8'),
+                               ('cached', 'bool')],
+                   'primary_key': 'det_id',
                    'exposure_key': 'exp_id',
                    'spatial_keys': ('ra', 'dec'),
                    'temporal_key': 'mjd_obs',
-                   'cached_flag' : 'cached',
+                   'cached_flag': 'cached',
                    },
            },
 }
 
-table_def_exp = \
-{
-    'filters' : { 'complevel': 5, 'complib': 'blosc', 'fletcher32': False },
-    'schema' : {
-           'main' : {
-                   'columns': [ ('exp_id', 'u8'),
-                                ('cached', 'bool'),
-                              ],
-                   'primary_key' : 'exp_id',
+table_def_exp = {
+    'filters': {'complevel': 5, 'complib': 'blosc', 'fletcher32': False},
+    'schema': {
+           'main': {
+                   'columns': [('exp_id', 'u8'),
+                               ('cached', 'bool')],
+                   'primary_key': 'exp_id',
                    'exposure_key': 'exp_id',
                    'spatial_keys': ('ra', 'dec'),
                    'temporal_key': 'mjd_obs',
-                   'cached_flag' : 'cached',
+                   'cached_flag': 'cached',
                    },
            },
 }
-
 
 
 def fix_names(dtype, ra, dec):
@@ -59,14 +53,13 @@ def fix_names(dtype, ra, dec):
             names[i] = n+'_'
     dtype.names = names
 
-def import_file(filename, loader, tabledet, tableexp, 
+
+def import_file(filename, loader, tabledet, tableexp,
                 detra, detdec, expra, expdec):
-    import pyfits
-    loader = secat.read_one
     try:
         for i, (det_dat, exp_dat) in enumerate(loader(filename)):
-            if det_dat != 0:
-                #exp_dat = combine_ccd_and_pri(exp_dat, pri_dat)
+            if det_dat is not None:
+                # exp_dat = combine_ccd_and_pri(exp_dat, pri_dat)
                 # FITS capitalization problems...
                 fix_names(det_dat.dtype, detra, detdec)
                 fix_names(exp_dat.dtype, expra, expdec)
@@ -82,8 +75,9 @@ def import_file(filename, loader, tabledet, tableexp,
             else:
                 yield ((filename, i), 0)
     except Exception as e:
-        print e
+        print(e)
         yield ((filename, -1), 0)
+
 
 def update_columns_descr(columns, dtype):
     for typedesc in dtype.descr:
@@ -93,12 +87,13 @@ def update_columns_descr(columns, dtype):
             type = type[1:]
         if len(typedesc) > 2:
             type = ('%d'+type) % typedesc[2][0]
-            #tdescr += (typedesc[2],)
+            # tdescr += (typedesc[2],)
             # bit of a hack, but doesn't work with the more complicated format
-            # specification and FITS binary tables don't support 
+            # specification and FITS binary tables don't support
             # multidimensional arrays as columns.
         tdescr = (name, type)
         columns.append(tdescr)
+
 
 def combine_ccd_and_pri(ccd, pri):
     if pri is None:
@@ -116,14 +111,13 @@ def combine_ccd_and_pri(ccd, pri):
         out['ccd_'+f] = ccd[f]
     return out
 
+
 def load_first_file(filename, loader):
-    dets = [ ]
-    heads = [ ]
-    primaryheader = None
-    for det, head, pri in loader(filename):
+    dets = []
+    heads = []
+    for det, head in loader(filename):
         dets.append(det)
         heads.append(head)
-        primaryheader = pri
     if len(dets) == 0:
         raise ValueError('No data in first file!')
     for det in dets:
@@ -133,11 +127,14 @@ def load_first_file(filename, loader):
         for name in head.dtype.names:
             if name not in heads[0].dtype.names:
                 raise ValueError('inconsistent dtype in different headers')
-    combexp = combine_ccd_and_pri(heads[0], pri)
-    return dets[0].dtype, combexp.dtype
+    # combexp = combine_ccd_and_pri(heads[0], primaryheader)
+    return dets[0].dtype, heads[0].dtype
 
-def import_files(db, table, filedir, loader, detra='', detdec='', 
-                 expra='', expdec=''):
+
+def import_files(db, table, filedir, loader_module, loader_fn,
+                 detra='', detdec='',  expra='', expdec=''):
+    import importlib
+    loader = getattr(importlib.import_module(loader_module), loader_fn)
     from lsd import pool2
     import re
     if not isinstance(filedir, list):
@@ -145,7 +142,7 @@ def import_files(db, table, filedir, loader, detra='', detdec='',
             file_list = os.listdir(filedir)
             file_list = [os.path.join(filedir, f) for f in file_list]
         except:
-            file_list = [ filedir ]
+            file_list = [filedir]
     else:
         file_list = filedir
     detdtype, expdtype = load_first_file(file_list[0], loader)
@@ -165,41 +162,50 @@ def import_files(db, table, filedir, loader, detra='', detdec='',
         if not db.table_exists(table+'_det'):
             det_tabname = table+'_det'
             exp_tabname = table+'_exp'
-            table_def_exp['commit_hooks'] = [ ('Updating neighbors', 1, 'lsd.smf', 'make_image_cache', [det_tabname]) ]
+            table_def_exp['commit_hooks'] = [
+                ('Updating neighbors', 1, 'lsd.smf', 'make_image_cache',
+                 [det_tabname])]
             tabledet = db.create_table(det_tabname, table_def_det)
             tableexp = db.create_table(exp_tabname, table_def_exp)
             db.define_default_join(det_tabname, exp_tabname,
-                                   type = 'indirect',
-                                   m1   = (det_tabname, "det_id"),
-                                   m2   = (det_tabname, "exp_id"),
-                                   _overwrite=True,
-                                   )
+                                   type='indirect',
+                                   m1=(det_tabname, "det_id"),
+                                   m2=(det_tabname, "exp_id"),
+                                   _overwrite=True)
 
         else:
             tabledet = db.table(table+'_det')
             tableexp = db.table(table+'_exp')
         for (fn, i), num in pool.imap_unordered(file_list, import_file,
-                                                (None, tabledet, tableexp, 
+                                                (loader, tabledet, tableexp,
                                                  detra, detdec,
                                                  expra, expdec)):
-            print "Imported part %d of file %s containing %d entries." % (i, fn, num)
+            print ("Imported part %d of file %s containing %d entries." %
+                   (i, fn, num))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Import FITS files to LSD')
     parser.add_argument('--db', '-d', default=os.environ['LSD_DB'])
-    parser.add_argument('--detra', default='', help='column in det table to rename ra')
-    parser.add_argument('--detdec', default='', help='column in det table to rename dec')
-    parser.add_argument('--expra', default='', help='column in exp table to rename ra')
-    parser.add_argument('--expdec', default='', help='column in exp table to rename dec')
-    parser.add_argument('--loader', default='', help='some mechanism for telling us how to load the files')
+    parser.add_argument('--detra', default='',
+                        help='column in det table to rename ra')
+    parser.add_argument('--detdec', default='',
+                        help='column in det table to rename dec')
+    parser.add_argument('--expra', default='',
+                        help='column in exp table to rename ra')
+    parser.add_argument('--expdec', default='',
+                        help='column in exp table to rename dec')
     parser.add_argument('--list', default=False, action='store_true')
-    parser.add_argument('table', type=str, nargs=1)
-    parser.add_argument('filedir', type=str, nargs=1)
+    parser.add_argument('table', type=str)
+    parser.add_argument('filedir', type=str)
+    parser.add_argument('loader_module', type=str,
+                        help='module with function for loading files')
+    parser.add_argument('loader_function', type=str,
+                        help='function in loader module for loading files')
     args = parser.parse_args()
-    files = args.filedir[0]
+    files = args.filedir
     if args.list:
-        files = open(files, 'r').readlines()
-    import_files(args.db, args.table[0], files,
-                 detra=args.detra, detdec=args.detdec, 
-                 expra=args.expra, expdec=args.expdec, 
-                 )
+        files = [s.strip() for s in open(files, 'r').readlines()]
+    import_files(args.db, args.table, files,
+                 args.loader_module, args.loader_function,
+                 detra=args.detra, detdec=args.detdec,
+                 expra=args.expra, expdec=args.expdec)

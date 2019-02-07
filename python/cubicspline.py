@@ -1,4 +1,4 @@
-# From NR
+# Based on Numerical Recipes
 import numpy
 from scipy.linalg import solve_banded
 import pdb
@@ -30,6 +30,13 @@ class CubicSpline:
             mat[1,0] = 1.
             mat[1,-1] = 1.
             bb[0] = 0.
+            bb[-1] = 0.
+        elif yp == '3d=0':
+            mat[1, 0] = -1./(x[1]-x[0])
+            mat[0, 1] =  1./(x[1]-x[0])
+            mat[1,-1] =  1./(x[-2]-x[-1])
+            mat[2,-2] = -1./(x[-2]-x[-1])
+            bb[ 0] = 0.
             bb[-1] = 0.
         else:
             mat[1, 0] = -1./3.*(x[1]-x[0])

@@ -2,7 +2,7 @@ import numpy as np
 import util_efs, pdb
 
 def precess(r, d, fromequinox, toequinox):
-    eqx = np.zeros(len(r), dtype=[('from', 'f8'), ('to', 'd8')])
+    eqx = np.zeros(len(r), dtype=[('from', 'f8'), ('to', 'f8')])
     eqx['from'] = fromequinox
     eqx['to'] = toequinox
     s = np.lexsort((eqx['from'], eqx['to']))

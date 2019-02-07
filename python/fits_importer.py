@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
-import pyfits, argparse, os, keyword, numpy
+import argparse, os, keyword, numpy, pdb
+#from astropy.io import fits
+import fitsio
 from lsd import DB
 
 table_def = \
@@ -26,25 +28,32 @@ def fix_names(dtype, ra, dec):
             names[i] = n+'_'
     dtype.names = names
 
-def import_file(file, table, ra, dec):
-    import pyfits
+def import_file(file, table, ra, dec, drop_columns=None):
     try:
-        dat = numpy.array(pyfits.getdata(file, 1)[:])
+        dat = numpy.array(fitsio.read(file, 1)[:])
     except IndexError:
-        dat = 0
+        dat = None
         yield (file, 0)
     except Exception as e:
         print 'Could not read file %s' % file
         raise e
-    if dat != 0:
+    if dat is not None:
+        if drop_columns:
+            keep_columns = [name for name in dat.dtype.names
+                            if name.lower() not in drop_columns]
+            if len(keep_columns) != len(dat.dtype.names):
+                dat = dat[keep_columns]
         # FITS capitalization problems...
         dtype = dat.dtype
         fix_names(dtype, ra, dec)
+        m = ~numpy.isfinite(dat['ra']) | ~numpy.isfinite(dat['dec'])
+        if numpy.any(m):
+            dat = dat[~m]
         #pdb.set_trace()
         ids = table.append(dat)
         yield (file, len(ids))
 
-def import_fits(db, table, filedir, ra='', dec=''):
+def import_fits(db, table, filedir, ra='', dec='', drop_columns=None):
     from lsd import pool2
     import re
     if not isinstance(filedir, list):
@@ -57,36 +66,44 @@ def import_fits(db, table, filedir, ra='', dec=''):
         file_list = filedir
 
     try:
-        firstfile = pyfits.getdata(file_list[0], 1)
+        firstfile = fitsio.read(file_list[0], 1)
+        if drop_columns:
+            keep_columns = [name for name in firstfile.dtype.names
+                            if name.lower() not in drop_columns]
+            firstfile = firstfile[keep_columns]
     except Exception as e:
         print 'Could not read first file %s' % file_list[0]
         print file_list[0:10]
         raise e
     dtype = firstfile.dtype
     fix_names(dtype, ra, dec)
-    columns = table_def['schema']['main']['columns']
+    from copy import deepcopy
+    table_def0 = deepcopy(table_def)
+    columns = table_def0['schema']['main']['columns']
     for typedesc in dtype.descr:
         name = typedesc[0]
         type = typedesc[1]
         if (type[0] == '<') or (type[0] == '>'):
             type = type[1:]
         if len(typedesc) > 2:
-            type = ('%d'+type) % typedesc[2][0]
+            if len(typedesc[2]) == 1:
+                type = ('%d'+type) % typedesc[2][0]
+            else:
+                type = ('%s'+type) % str(typedesc[2])
             #tdescr += (typedesc[2],)
             # bit of a hack, but doesn't work with the more complicated format
-            # specification and FITS binary tables don't support multidimensional
-            # arrays as columns.
+            # specification
         tdescr = (name, type)
         columns.append(tdescr)
     pool = pool2.Pool()
     db = DB(db)
     with db.transaction():
         if not db.table_exists(table):
-            table = db.create_table(table, table_def)
+            table = db.create_table(table, table_def0)
         else:
             table = db.table(table)
         for fn, num in pool.imap_unordered(file_list, import_file,
-                                           (table, ra, dec)):
+                                           (table, ra, dec, drop_columns)):
             print "Imported file %s containing %d entries." % (fn, num)
 
 if __name__ == "__main__":
@@ -95,11 +112,18 @@ if __name__ == "__main__":
     parser.add_argument('--ra', default='', help='column in fits file to rename ra')
     parser.add_argument('--dec', default='', help='column in fits file to rename dec')
     parser.add_argument('--list', default=False, action='store_true')
+    parser.add_argument('--drop-columns', default='')
     parser.add_argument('table', type=str, nargs=1)
     parser.add_argument('filedir', type=str, nargs=1)
     args = parser.parse_args()
     files = args.filedir[0]
     if args.list:
-        files = open(files, 'r').readlines()
+        files = [s.strip() for s in open(files, 'r').readlines()]
+    print(args.drop_columns)
+    if len(args.drop_columns) > 0:
+        drop_columns = args.drop_columns.split(' ')
+        drop_columns = [d.lower() for d in drop_columns]
+    else:
+        drop_columns = None
     import_fits(args.db, args.table[0], files,
-                ra=args.ra, dec=args.dec)
+                ra=args.ra, dec=args.dec, drop_columns=drop_columns)
