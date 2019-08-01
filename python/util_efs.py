@@ -2,7 +2,7 @@ import os
 import random
 import pdb
 import fnmatch
-import cPickle as pickle
+import pickle
 import numpy
 import matplotlib
 from matplotlib import pyplot
@@ -23,7 +23,7 @@ def gc_dist(lon1, lat1, lon2, lat2):
 
 
 def sample(obj, n):
-    ind = random.sample(xrange(len(obj)),numpy.int(n))
+    ind = random.sample(range(len(obj)),numpy.int(n))
     return obj[numpy.array(ind)]
 
 
@@ -155,7 +155,7 @@ class subslices:
         return self
     def __len__(self):
         return len(self.uind)
-    def next(self):
+    def __next__(self):
         if self.ind == len(self.uind):
             raise StopIteration
         if self.ind == 0:
@@ -165,6 +165,8 @@ class subslices:
         last = self.uind[self.ind]+1
         self.ind += 1
         return first, last
+    def next(self):
+        return self.__next__()
 
 
 def query_lsd(querystr, db=None, bounds=None, **kw):
@@ -193,7 +195,7 @@ def svd_variance(u, s, vh, no_covar=False):
 #    covar = numpy.dot(numpy.dot(numpy.transpose(vh), numpy.diag(s2)),
 #                      numpy.transpose(u))
     if no_covar: # computing the covariance matrix is expensive, n^3 time.  if we skip that, only n^2
-        return (numpy.array([ numpy.sum(vh.T[i,:]*s2*u.T[:,i]) for i in xrange(len(s2))]), 
+        return (numpy.array([ numpy.sum(vh.T[i,:]*s2*u.T[:,i]) for i in range(len(s2))]), 
                 numpy.nan)
     covar = vh.T*s2.reshape(1,-1)
     covar = numpy.dot(covar, u.T)
@@ -225,7 +227,7 @@ def readhdf5(filename, dsname=None):
         #ds = f.create_dataset(dsname, shape=f[dsname].shape)
         ds = f[dsname]
     except Exception as e:
-        print 'possible keys:' , f.keys()
+        print('possible keys:' , f.keys())
         f.close()
         raise e
     dat = ds[:]
@@ -282,9 +284,9 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
     old = n.array( a.shape )
     ndims = len( a.shape )
     if len( newdims ) != ndims:
-        print "[congrid] dimensions error. " \
+        print("[congrid] dimensions error. " \
               "This routine currently only support " \
-              "rebinning to the same number of dimensions."
+              "rebinning to the same number of dimensions.")
         return None
     newdims = n.asarray( newdims, dtype=float )
     dimlist = []
@@ -345,42 +347,42 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
         newa = scipy.ndimage.map_coordinates(a, newcoords)
         return newa
     else:
-        print "Congrid error: Unrecognized interpolation type.\n", \
+        print("Congrid error: Unrecognized interpolation type.\n", \
               "Currently only \'neighbour\', \'nearest\',\'linear\',", \
-              "and \'spline\' are supported."
+              "and \'spline\' are supported.")
         return None
 
 # Stolen from MJ
 #######################################################################
 # Compute percentiles of 2D ndarrays of frequencies
 def percentile_freq(v, quantiles, axis=0, rescale=None, catchallbin=True):
-	"""
-	Given an array v, compute quantiles along a given axis
-	
-	Array v is assumed to be two dimensional.
-	"""
-	if v.dtype != float:
-		v = v.astype(float)
-	if axis != 0:
-		v = v.transpose()
+        """
+        Given an array v, compute quantiles along a given axis
+        
+        Array v is assumed to be two dimensional.
+        """
+        if v.dtype != float:
+                v = v.astype(float)
+        if axis != 0:
+                v = v.transpose()
 
-	cs = numpy.cumsum(v, axis=0, dtype='f8')
-	c = numpy.zeros((v.shape[0]+1, v.shape[1]))
+        cs = numpy.cumsum(v, axis=0, dtype='f8')
+        c = numpy.zeros((v.shape[0]+1, v.shape[1]))
         c[1:, :] = cs / (cs[-1, :] + (cs[-1, :] == 0))
 
-	# Now find the desired
-	#x   = numpy.arange(v.shape[0]+1) - 0.5
-	x   = numpy.linspace(0, v.shape[0], v.shape[0]+1)
-	res = numpy.empty(numpy.array(quantiles, copy=False).shape +
+        # Now find the desired
+        #x   = numpy.arange(v.shape[0]+1) - 0.5
+        x   = numpy.linspace(0, v.shape[0], v.shape[0]+1)
+        res = numpy.empty(numpy.array(quantiles, copy=False).shape +
                           (v.shape[1],), dtype=float)
-	norm = x*1e-10
-	for k in xrange(v.shape[1]):
-		# Construct interpolation object
-		y  = c[:, k] + norm
+        norm = x*1e-10
+        for k in range(v.shape[1]):
+                # Construct interpolation object
+                y  = c[:, k] + norm
                 # this tiny fudge ensures y is always monotonically increasing
-		res[:, k] = numpy.interp(quantiles, y, x)
+                res[:, k] = numpy.interp(quantiles, y, x)
 
-	if rescale:
+        if rescale:
                 if catchallbin:
                         res = rescale[0] + (rescale[1]-rescale[0])*(res-1)/(v.shape[0]-2)
                 else:
@@ -391,7 +393,7 @@ def percentile_freq(v, quantiles, axis=0, rescale=None, catchallbin=True):
 
         res[:, cs[-1,:] == 0] = numpy.nan
 
-	return res
+        return res
 
 
 # Stolen from MJ
@@ -478,7 +480,7 @@ def fasthist_aux(out, outdims, x, first, num, binsz, weight=None):
 
 def make_bins(p, range, bin, npix):
     if bin != None and npix != None:
-        print "bin size and number of bins set; ignoring bin size"
+        print("bin size and number of bins set; ignoring bin size")
         bin = None
     if range is not None and min(range) == max(range):
         raise ValueError('min(range) must not equal max(range)')
@@ -624,7 +626,7 @@ def convert_to_structured_array(ob, fields, getfn=getattr):
     out = numpy.zeros(1, dtype=dtype)
     for f in fields:
         if f in skipzero:
-            print "field %s has zero size, skipping" % f
+            print("field %s has zero size, skipping" % f)
             continue
         val = getfn(ob, f, None)
         if val is not None:
@@ -660,7 +662,7 @@ def join_struct_arrays(arrays):
     u = unique(names)
     nname = numpy.concatenate([[u[0]+1], u[1:]-u[0:-1]])
     if numpy.any(nname > 1):
-        print 'Duplicate names.', names[u[nname > 1]]
+        print('Duplicate names.', names[u[nname > 1]])
         raise ValueError('Duplicate column names in table.')
     newrecarray = numpy.empty(len(arrays[0]), dtype=newdtype)
     for a in arrays:
@@ -728,7 +730,7 @@ def convert_val(val, d, default=None):
     return out
 
 def mag_arr_index(mag, ind):
-    return mag[:,ind] if isinstance(ind, (int, long)) else mag[ind]
+    return mag[:,ind] if isinstance(ind, int) else mag[ind]
 
 def ccd(mag, ind1, ind2, ind3, ind4, markersymbol=',', nozero=True,
         norm=matplotlib.colors.LogNorm(),
@@ -887,7 +889,7 @@ def solve_lstsq_covar(aa, bb, icvar, svdthresh=None, return_covar=False):
 
 def polyfit(x, y, deg, ivar=None, return_covar=False):
     aa = numpy.zeros((len(x), deg+1))
-    for i in xrange(deg+1):
+    for i in range(deg+1):
         aa[:,i] = x**(deg-i)
     if ivar is None:
         ivar = numpy.ones_like(y)
@@ -904,7 +906,7 @@ def poly_iter(x, y, deg, yerr=None, sigrej=3., niter=10, return_covar=False,
         invvar = None
     else:
         invvar = 1./yerr**2
-    for i in xrange(niter):
+    for i in range(niter):
         iv = invvar[m] if invvar is not None else None
         sol = polyfit(x[m], y[m], deg, ivar=iv, return_covar=return_covar)
         p = sol[0]
@@ -1102,7 +1104,7 @@ def imshow(im, xpts=None, ypts=None, xrange=None, yrange=None, range=None,
         kwargs['extent'] = [xpts[0]-dx/2., xpts[-1]+dx/2.,
                             ypts[0]-dy/2., ypts[-1]+dy/2.]
         if len(xpts) != im.shape[0] or len(ypts) != im.shape[1]:
-            print 'Warning: mismatch between xpts, ypts and im.shape'
+            print('Warning: mismatch between xpts, ypts and im.shape')
         if not color:
             im = im.T
         else:
@@ -1543,7 +1545,7 @@ def cg_to_fits(cg, fixub=True):
         format = col[1]
         if format.find('O') != -1:
             cg.drop_column(colname)
-            print 'Warning: dropping column %s because FITS does not support objects.' % colname
+            print('Warning: dropping column %s because FITS does not support objects.' % colname)
             continue
         if not fixub:
             continue
@@ -1685,7 +1687,7 @@ def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
     if breakkey is None:
         while i*nrecperfile < len(dat):
             filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
-            print filename, i*nrecperfile, (i+1)*nrecperfile
+            print(filename, i*nrecperfile, (i+1)*nrecperfile)
             pyfits.writeto(filename, dat[i*nrecperfile:(i+1)*nrecperfile])
             i += 1
     else:
@@ -1696,7 +1698,7 @@ def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
             last += l-f
             if last-first > nrecperfile or (last != first and l == len(dat)):
                 filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
-                print filename, first, last, last-first
+                print(filename, first, last, last-first)
                 pyfits.writeto(filename, dat[first:last])
                 first = last
                 i += 1

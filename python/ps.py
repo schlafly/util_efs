@@ -60,7 +60,7 @@ flags = {
 'ON_GHOST'         	  : 0x40000000, # peak lands on ghost or glint
 'OFF_CHIP'         	  : 0x80000000, # peak lands off edge of chip
 }
-for x,y in flags.items():
+for x,y in list(flags.items()):
     flags[y] = x
 
 # definition of flags2 (see http://svn.pan-starrs.ifa.hawaii.edu/trac/ipp/wiki/CMF_PS1_V3)
@@ -81,7 +81,7 @@ flags2 = {
 'SATSTAR_PROFILE'         : 0x00001000, # saturated source is modeled with a radial profile
 'DUPLICATE_EFS'           : 0x10000000, # hand marked bad images by EFS
 }
-for x,y in flags2.items():
+for x,y in list(flags2.items()):
     flags2[y] = x
 
 
@@ -358,13 +358,13 @@ def number_to_flags(flagsi=None, flags2i=None):
         for x in xrange(32):
             if (flagsi & 2**x) != 0:
                 out.append(flags[2**x])
-        print 'FLAGS: ' + ' '.join(out)
+        print('FLAGS: ' + ' '.join(out))
     if flags2i is not None:
         out = []
         for x in xrange(32):
             if (flags2i & 2**x) != 0:
                 out.append(flags2[2**x])
-        print 'FLAGS: ' + ' '.join(out)
+        print('FLAGS: ' + ' '.join(out))
 
 def rdm2airmass(ra, dec, mjd_obs, lat=20.7070999146, lon=-156.2559127815):
     # lat, lon are the PS1 coordinates
