@@ -31,7 +31,7 @@ class CubicSpline:
             mat[1,-1] = 1.
             bb[0] = 0.
             bb[-1] = 0.
-        elif yp == '3d=0':
+        elif isinstance(yp, str) and (yp == '3d=0'):
             mat[1, 0] = -1./(x[1]-x[0])
             mat[0, 1] =  1./(x[1]-x[0])
             mat[1,-1] =  1./(x[-2]-x[-1])

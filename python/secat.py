@@ -20,11 +20,17 @@ def fitstondarray(fits, lower=False):
     return nd
 
 
-def headers_to_ndarr(headers):
+def headers_to_ndarr(headers, exclude_btable=False):
     names = headers[0].keys()
     names = [n.lower() for n in names
              if (n != 'HISTORY' and n[0:4] != 'SLOT' and
                  len(n) > 0 and n != 'DESCRMSK' and n != 'COMMENT')]
+    if exclude_btable:
+        names = [n.lower() for n in names if 
+                 (n.upper() not in ['XTENSION', 'BITPIX', 
+                                    'NAXIS', 'NAXIS1', 'NAXIS2',
+                                    'PCOUNT', 'GCOUNT', 'TFIELDS']) and
+                 (n[0:5].upper() not in ['TTYPE', 'TFORM'])]
     arrays = [numpy.array([h.get(n, -999) for h in headers]) for n in names]
     names = [n.replace('-', '_') for n in names]
     if numpy.any([len(n) == 0 for n in names]):
@@ -251,3 +257,34 @@ def ls_photom_v1_read(filename):
     dat.dtype.names = names
     return [(dat, ccds[m].copy())]
 ls_photom_v1_read.ccds = None
+
+
+def ls_photom_v2_read(filename):
+    if ls_photom_v2_read.ccds is None:
+        print('Loading CCDs file %s...' % os.environ['LS_CCDS'])
+        ls_photom_v2_read.ccds = fits.getdata(os.environ['LS_CCDS'])
+        print('Finished loading CCDs file.')
+    ccds = ls_photom_v2_read.ccds
+    dat, hdr = fits.getdata(filename, 1, header=True)
+    dat = numpy.array(dat).copy()
+
+    basenames = numpy.array(['/'.join(f.split('/')[-2:]).strip()
+                             for f in ccds['image_filename']])
+    imname = hdr['FILENAME'].strip()
+    s = numpy.argsort(ccds['ccdname'])
+    m = numpy.flatnonzero(imname == basenames[s])
+    if len(m) != 1:
+        raise ValueError('Weird filename / CCD match! File: %s' % filename)
+    ra, dec = ccds['ra'][s[m]][0], ccds['dec'][s[m]][0]
+    fwhm = ccds['fwhm'][s[m]][0]
+    hdr['RA'] = ra
+    hdr['DEC'] = dec
+    hdr['FWHM'] = fwhm
+
+    dat = rec_append_fields(dat, 'mjd_obs',
+                            numpy.zeros(len(dat), dtype='f8')+hdr['MJD-OBS'])
+    names = [n.lower() for n in dat.dtype.names]
+    dat.dtype.names = names
+    phdr = headers_to_ndarr([hdr], exclude_btable=True)
+    return [(dat, phdr)]
+ls_photom_v2_read.ccds = None

@@ -26,17 +26,16 @@ def fix_names(dtype, ra, dec):
     for i, n in enumerate(names):
         if keyword.iskeyword(n):
             names[i] = n+'_'
+        if '.' in n:
+            names[i] = names[i].replace('.', 'p')
     dtype.names = names
 
-def import_file(file, table, ra, dec, drop_columns=None):
-    try:
+
+def read_file(file, ra, dec, drop_columns=None, reader=None):
+    if reader is None:
         dat = numpy.array(fitsio.read(file, 1)[:])
-    except IndexError:
-        dat = None
-        yield (file, 0)
-    except Exception as e:
-        print 'Could not read file %s' % file
-        raise e
+    else:
+        dat = reader(file)
     if dat is not None:
         if drop_columns:
             keep_columns = [name for name in dat.dtype.names
@@ -49,11 +48,26 @@ def import_file(file, table, ra, dec, drop_columns=None):
         m = ~numpy.isfinite(dat['ra']) | ~numpy.isfinite(dat['dec'])
         if numpy.any(m):
             dat = dat[~m]
-        #pdb.set_trace()
+            print('fits_importer.read_file: Some NaN ra/dec')
+    return dat
+        
+
+def import_file(file, table, ra, dec, drop_columns=None, reader=None):
+    try:
+        dat = read_file(file, ra, dec, drop_columns=drop_columns,
+                        reader=reader)
+    except IndexError:
+        dat = None
+        yield (file, 0)
+    except Exception as e:
+        print 'Could not read file %s' % file
+        raise e
+    if dat is not None:
         ids = table.append(dat)
         yield (file, len(ids))
 
-def import_fits(db, table, filedir, ra='', dec='', drop_columns=None):
+def import_fits(db, table, filedir, ra='', dec='', drop_columns=None,
+                reader=None):
     from lsd import pool2
     import re
     if not isinstance(filedir, list):
@@ -66,17 +80,13 @@ def import_fits(db, table, filedir, ra='', dec='', drop_columns=None):
         file_list = filedir
 
     try:
-        firstfile = fitsio.read(file_list[0], 1)
-        if drop_columns:
-            keep_columns = [name for name in firstfile.dtype.names
-                            if name.lower() not in drop_columns]
-            firstfile = firstfile[keep_columns]
+        firstfile = read_file(file_list[0], ra, dec, drop_columns=drop_columns,
+                              reader=reader)
     except Exception as e:
-        print 'Could not read first file %s' % file_list[0]
-        print file_list[0:10]
+        print('Could not read first file %s' % file_list[0])
+        print(file_list[0:10])
         raise e
     dtype = firstfile.dtype
-    fix_names(dtype, ra, dec)
     from copy import deepcopy
     table_def0 = deepcopy(table_def)
     columns = table_def0['schema']['main']['columns']
@@ -103,7 +113,8 @@ def import_fits(db, table, filedir, ra='', dec='', drop_columns=None):
         else:
             table = db.table(table)
         for fn, num in pool.imap_unordered(file_list, import_file,
-                                           (table, ra, dec, drop_columns)):
+                                           (table, ra, dec, drop_columns,
+                                            reader)):
             print "Imported file %s containing %d entries." % (fn, num)
 
 if __name__ == "__main__":
