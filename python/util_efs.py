@@ -18,7 +18,7 @@ def gc_dist(lon1, lat1, lon2, lat2):
     lon2 = numpy.radians(lon2); lat2 = numpy.radians(lat2)
 
     return numpy.degrees(
-        2*arcsin(sqrt( (sin((lat1-lat2)*0.5))**2 + 
+        2*arcsin(sqrt( (sin((lat1-lat2)*0.5))**2 +
                        cos(lat1)*cos(lat2)*(sin((lon1-lon2)*0.5))**2 )));
 
 
@@ -195,7 +195,7 @@ def svd_variance(u, s, vh, no_covar=False):
 #    covar = numpy.dot(numpy.dot(numpy.transpose(vh), numpy.diag(s2)),
 #                      numpy.transpose(u))
     if no_covar: # computing the covariance matrix is expensive, n^3 time.  if we skip that, only n^2
-        return (numpy.array([ numpy.sum(vh.T[i,:]*s2*u.T[:,i]) for i in range(len(s2))]), 
+        return (numpy.array([ numpy.sum(vh.T[i,:]*s2*u.T[:,i]) for i in range(len(s2))]),
                 numpy.nan)
     covar = vh.T*s2.reshape(1,-1)
     covar = numpy.dot(covar, u.T)
@@ -251,7 +251,7 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
     '''Arbitrary resampling of source array to new dimension sizes.
     Currently only supports maintaining the same number of dimensions.
     To use 1-D arrays, first promote them to shape (x,1).
-    
+
     Uses the same parameters and creates the same co-ordinate lookup points
     as IDL''s congrid routine, which apparently originally came from a VAX/VMS
     routine of the same name.
@@ -284,8 +284,8 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
     old = n.array( a.shape )
     ndims = len( a.shape )
     if len( newdims ) != ndims:
-        print("[congrid] dimensions error. " \
-              "This routine currently only support " \
+        print("[congrid] dimensions error. "
+              "This routine currently only support "
               "rebinning to the same number of dimensions.")
         return None
     newdims = n.asarray( newdims, dtype=float )
@@ -304,8 +304,8 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
         # calculate new dims
         for i in range( ndims ):
             base = n.arange( newdims[i] )
-            dimlist.append( (old[i] - m1) / (newdims[i] - m1) \
-                            * (base + ofs) - ofs )
+            dimlist.append((old[i] - m1) / (newdims[i] - m1) *
+                           (base + ofs) - ofs )
         # specify old dims
         olddims = [n.arange(i, dtype = n.float) for i in list( a.shape )]
 
@@ -347,8 +347,8 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
         newa = scipy.ndimage.map_coordinates(a, newcoords)
         return newa
     else:
-        print("Congrid error: Unrecognized interpolation type.\n", \
-              "Currently only \'neighbour\', \'nearest\',\'linear\',", \
+        print("Congrid error: Unrecognized interpolation type.\n",
+              "Currently only \'neighbour\', \'nearest\',\'linear\',",
               "and \'spline\' are supported.")
         return None
 
@@ -356,56 +356,56 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
 #######################################################################
 # Compute percentiles of 2D ndarrays of frequencies
 def percentile_freq(v, quantiles, axis=0, rescale=None, catchallbin=True):
-        """
-        Given an array v, compute quantiles along a given axis
-        
-        Array v is assumed to be two dimensional.
-        """
-        if v.dtype != float:
-                v = v.astype(float)
-        if axis != 0:
-                v = v.transpose()
+    """
+    Given an array v, compute quantiles along a given axis
 
-        cs = numpy.cumsum(v, axis=0, dtype='f8')
-        c = numpy.zeros((v.shape[0]+1, v.shape[1]))
-        c[1:, :] = cs / (cs[-1, :] + (cs[-1, :] == 0))
+    Array v is assumed to be two dimensional.
+    """
+    if v.dtype != float:
+        v = v.astype(float)
+    if axis != 0:
+        v = v.transpose()
 
-        # Now find the desired
-        #x   = numpy.arange(v.shape[0]+1) - 0.5
-        x   = numpy.linspace(0, v.shape[0], v.shape[0]+1)
-        res = numpy.empty(numpy.array(quantiles, copy=False).shape +
-                          (v.shape[1],), dtype=float)
-        norm = x*1e-10
-        for k in range(v.shape[1]):
-                # Construct interpolation object
-                y  = c[:, k] + norm
-                # this tiny fudge ensures y is always monotonically increasing
-                res[:, k] = numpy.interp(quantiles, y, x)
+    cs = numpy.cumsum(v, axis=0, dtype='f8')
+    c = numpy.zeros((v.shape[0]+1, v.shape[1]))
+    c[1:, :] = cs / (cs[-1, :] + (cs[-1, :] == 0))
 
-        if rescale:
-                if catchallbin:
-                        res = rescale[0] + (rescale[1]-rescale[0])*(res-1)/(v.shape[0]-2)
-                else:
-                        res = rescale[0] + (rescale[1] - rescale[0]) * (res/v.shape[0])
+    # Now find the desired
+    #x   = numpy.arange(v.shape[0]+1) - 0.5
+    x   = numpy.linspace(0, v.shape[0], v.shape[0]+1)
+    res = numpy.empty(numpy.array(quantiles, copy=False).shape +
+                      (v.shape[1],), dtype=float)
+    norm = x*1e-10
+    for k in range(v.shape[1]):
+        # Construct interpolation object
+        y  = c[:, k] + norm
+        # this tiny fudge ensures y is always monotonically increasing
+        res[:, k] = numpy.interp(quantiles, y, x)
 
-        if axis != 0:
-            v = v.transpose()
+    if rescale:
+        if catchallbin:
+            res = rescale[0] + (rescale[1]-rescale[0])*(res-1)/(v.shape[0]-2)
+        else:
+            res = rescale[0] + (rescale[1] - rescale[0]) * (res/v.shape[0])
 
-        res[:, cs[-1,:] == 0] = numpy.nan
+    if axis != 0:
+        v = v.transpose()
 
-        return res
+    res[:, cs[-1, :] == 0] = numpy.nan
+
+    return res
 
 
 # Stolen from MJ
 def clipped_stats(v, clip=3, return_mask=False):
     """
     Clipped mean and stdev for a vector.
-    
+
     Computes the median and SIQR for the vector, and excludes all
     samples outside of +/- siqr*(1.349*clip) of the median (i.e., +/-
 
     clip sigma).  Returns the mean and stdev of the remainder.
-    
+
     Returns
     -------
     mean, stdev: numbers
@@ -418,7 +418,7 @@ def clipped_stats(v, clip=3, return_mask=False):
 
     if len(v) == 1:
         return v[0], 0*v[0]
-    
+
     from scipy.stats.mstats import mquantiles
     (ql, med, qu) = mquantiles(v, (0.25, 0.5, 0.75))
     siqr = 0.5*(qu - ql)
@@ -581,7 +581,7 @@ class Scatter:
             pyplot.imshow(dispim.T, extent=extent, interpolation='nearest',
                           origin='lower', aspect='auto', **kw)
         if self.conditional:
-            xpts2 = (numpy.repeat(self.xpts, 2) + 
+            xpts2 = (numpy.repeat(self.xpts, 2) +
                      numpy.tile(numpy.array([-1.,1.])*0.5*self.deltx,
                                 len(self.xpts)))
             pyplot.plot(xpts2, numpy.repeat(self.q16, 2), linecolor,
@@ -751,7 +751,7 @@ def ccd(mag, ind1, ind2, ind3, ind4, markersymbol=',', nozero=True,
     else:
         contourpts(x, y, xrange=xrange, yrange=yrange, **kwargs)
 
-def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(), 
+def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(),
         xrange=[-1,3], yrange=[25,10], contour=False, pts=False, markersymbol=',',
         **kwargs):
     x = mag_arr_index(mag, ind1) - mag_arr_index(mag, ind2)
@@ -766,7 +766,7 @@ def cmd(mag, ind1, ind2, ind3, nozero=True, norm=matplotlib.colors.LogNorm(),
         pyplot.ylim(yrange)
         return
     if not contour:
-        return scatterplot(x, y, conditional=False, 
+        return scatterplot(x, y, conditional=False,
                            xrange=xrange, yrange=yrange,
                            norm=norm, **kwargs)
     else:
@@ -967,7 +967,7 @@ def tp2uv(t, p):
     return numpy.concatenate([q[...,numpy.newaxis] for q in (x, y, z)],
                              axis=-1)
     #return numpy.vstack([x, y, z]).transpose().copy()
-    
+
 def lb2uv(r, d):
     return tp2uv(*lb2tp(r, d))
 
@@ -1341,13 +1341,13 @@ def arrow(x, y, dx, dy, arrowstyle='->', mutation_scale=30, **kw):
     FancyArrow = matplotlib.patches.FancyArrowPatch
     return add_patch(FancyArrow((x,y),(x+dx,y+dy), arrowstyle=arrowstyle,
                                 mutation_scale=mutation_scale, **kw))
-    
+
 def rebin(a, *args):
     """ Stolen from internet
     rebin ndarray data into a smaller ndarray of the same rank whose dimensions
     are factors of the original dimensions. eg. An array with 6 columns and
     4 rows can be reduced to have 6,3,2 or 1 columns and 4,2 or 1 rows.
-    
+
     example usages:
     >>> a=rand(6,4); b=rebin(a,3,2)
     >>> a=rand(6); b=rebin(a,2)
@@ -1466,20 +1466,20 @@ def bindata(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
     return (hist_all/(whist_all + (whist_all == 0)), whist_all,
             (xpts[:-1]+xpts[1:])/2., (ypts[:-1]+ypts[1:])/2.)
 
-def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None, 
+def showbindata(x, y, dat, xrange=None, yrange=None, min=None, max=None,
                 showweight=False, log=False, **kw):
     im, wim, xpts, ypts = bindata(x, y, dat, xrange=xrange, yrange=yrange,
                                   **kw)
     if showweight:
         im = wim
-    imshow(im[1:-1,1:-1], xpts, ypts, xrange=xrange, yrange=yrange, 
+    imshow(im[1:-1,1:-1], xpts, ypts, xrange=xrange, yrange=yrange,
            min=min, max=max, log=log)
 
 
 def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
             yrange=None, xbin=None, ybin=None, pointcut=1, cmap='jet', log=False,
-            vmin=None, vmax=None, showpts=True, contour=True, nlevels=6, 
-            logcontour=False, logspace=None, logmin=0, levels=None, minlevel=1, 
+            vmin=None, vmax=None, showpts=True, contour=True, nlevels=6,
+            logcontour=False, logspace=None, logmin=0, levels=None, minlevel=1,
             mask_nan=False, colors='black', **kw):
     m = numpy.isfinite(x) & numpy.isfinite(y)
     xrange, xpts, flipx = make_bins(x[m], xrange, xbin, xnpix)
@@ -1503,10 +1503,10 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
 
     loc = [numpy.array(numpy.floor((i-f)//sz)+1, dtype='i4')
            for i,f,sz in zip((x, y), (xpts[0], ypts[0]), (xpts[1]-xpts[0], ypts[1]-ypts[0]))]
-    loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in 
+    loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in
            zip(loc, (len(xpts)-1, len(ypts)-1))]
-    
-    
+
+
     # uhh, dumbest thing is max one point per bin
     m = count_hist <= pointcut
     hist_all = hist_all / (whist_all + (whist_all == 0.))
@@ -1515,6 +1515,18 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
         vmin = numpy.nanmin(hist_all)
     if vmax is None:
         vmax = numpy.nanmax(hist_all)
+
+    if flipx:
+        xpts = xpts[::-1].copy()
+        hist_all = hist_all[::-1,:].copy()
+        count_hist = count_hist[::-1,:].copy()
+        xrange = [r for r in reversed(xrange)]
+    if flipy:
+        ypts = ypts[::-1].copy()
+        hist_all = hist_all[:,::-1].copy()
+        count_hist = count_hist[:,::-1].copy()
+        yrange = [r for r in reversed(yrange)]
+
     ret = imshow(hist_all[1:-1,1:-1], xpts[:-1]+xbin/2., ypts[:-1]+ybin/2., xrange=xrange, yrange=yrange, cmap=cmap, log=log, vmin=vmin, vmax=vmax, origin='lower', mask_nan=mask_nan)
     # pyplot.draw()
     if showpts:
@@ -1533,7 +1545,7 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
             else:
                 levels = (numpy.arange(nlevels)+minlevel)*maximage/nlevels
 
-        pyplot.contour(count_hist[1:-1,1:-1].T, 
+        pyplot.contour(count_hist[1:-1,1:-1].T,
                        extent=[xpts[0], xpts[-1], ypts[0], ypts[-1]],
                        colors=colors, levels=levels)
     return ret
@@ -1623,6 +1635,7 @@ def mjd2lst(mjd, lng):
     lst = lst % 24.
     return lst
 
+
 # PS1 lat/lon: 20.71552, -156.169
 def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
     if precess:
@@ -1632,11 +1645,15 @@ def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
         r, d = precessmod.precess(r, d, 2000., 2000.+(mjd + mjdstart - jd2000)/365.25)
     lst = mjd2lst(mjd, lng)
     ha = lst*360./24 - r
+    return hadec2altaz(ha, d, lat)
+
+
+def hadec2altaz(ha, dec, lat):
     d2r = numpy.pi/180.
     # hadec2altaz.pro in idlutils
     sin, cos = numpy.sin, numpy.cos
     sh, ch = sin(ha*d2r),  cos(ha*d2r)
-    sd, cd = sin(d*d2r), cos(d*d2r)
+    sd, cd = sin(dec*d2r), cos(dec*d2r)
     sl, cl = sin(lat*d2r), cos(lat*d2r)
     x = - ch * cd * sl + sd * cl
     y = - sh * cd
@@ -1656,12 +1673,13 @@ def alt2airmass(alt):
 
 def interpolate_from(fits, r, d, wcs=None, im=None):
     if wcs is None:
-        import pywcs, pyfits
-        h = pyfits.getheader(fits)
+        import pywcs
+        from astropy.io import fits
+        h = fits.getheader(fits)
         wcs = pywcs.WCS(h)
     if im is None:
-        import pyfits
-        im = pyfits.getdata(fits)
+        from astropy.io import fits
+        im = fits.getdata(fits)
     ims = im.squeeze()
     pix = wcs.wcs_sky2pix(numpy.array([r, d,
                                        numpy.ones(len(r)),
@@ -1670,9 +1688,10 @@ def interpolate_from(fits, r, d, wcs=None, im=None):
     val = map_coordinates(ims, (pix[:,0:2])[:,::-1].transpose(),
                  cval=numpy.nan, order=1)
     return val
-    
+
+
 def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
-    import pyfits
+    from astropy.io import fits
     nbytes = len(dat)*dat.dtype.itemsize
     if breakkey is not None:
         s = numpy.argsort(dat[breakkey])
@@ -1688,7 +1707,7 @@ def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
         while i*nrecperfile < len(dat):
             filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
             print(filename, i*nrecperfile, (i+1)*nrecperfile)
-            pyfits.writeto(filename, dat[i*nrecperfile:(i+1)*nrecperfile])
+            fits.writeto(filename, dat[i*nrecperfile:(i+1)*nrecperfile])
             i += 1
     else:
         first = 0
@@ -1699,7 +1718,7 @@ def write_file_in_chunks(dat, filename, chunksize, breakkey=None):
             if last-first > nrecperfile or (last != first and l == len(dat)):
                 filename = filestart + (('_%d' % i) if i != 0 else '')+fileend
                 print(filename, first, last, last-first)
-                pyfits.writeto(filename, dat[first:last])
+                fits.writeto(filename, dat[first:last])
                 first = last
                 i += 1
 
@@ -1736,22 +1755,27 @@ def HMS2deg(ra='', dec='', delimiter=None):
       ds, D = -1, abs(D)
     deg = D + (M/60) + (S/3600)
     DEC = deg*ds
-  
+
   if ra:
     H, M, S = [float(i) for i in ra.split(delimiter)]
     if str(H)[0] == '-':
       rs, H = -1, abs(H)
     deg = (H*15) + (M/4) + (S/240)
     RA = deg*rs
-  
+
   if ra and dec:
     return (RA, DEC)
   else:
     return RA or DEC
 
 # stolen from internet
-def deg2HMS(ra='', dec='', round=False, delimiter=' '):
+def deg2HMS(ra='', dec='', round=False, delimiter=' ', includedecsign=False,
+            radecimals=4, decdecimals=3):
   RA, DEC, rs, ds = '', '', '', ''
+  rawidth = radecimals+1+2
+  decwidth = decdecimals+1+2
+  if includedecsign:
+      ds = '+'
   if dec:
     if str(dec)[0] == '-':
       ds, dec = '-', abs(dec)
@@ -1761,8 +1785,9 @@ def deg2HMS(ra='', dec='', round=False, delimiter=' '):
       decS = int((abs((dec-deg)*60)-decM)*60)
     else:
       decS = (abs((dec-deg)*60)-decM)*60
-    DEC = '{0}{1:02}{d}{2:02}{d}{3:06.3f}'.format(ds, deg, decM, decS, d=delimiter)
-  
+    DEC = '{0}{1:02}{d}{2:02}{d}{3:0{4}.{5}f}'
+    DEC = DEC.format(ds, deg, decM, decS, decwidth, decdecimals, d=delimiter)
+
   if ra:
     if str(ra)[0] == '-':
       rs, ra = '-', abs(ra)
@@ -1772,8 +1797,9 @@ def deg2HMS(ra='', dec='', round=False, delimiter=' '):
       raS = int(((((ra/15)-raH)*60)-raM)*60)
     else:
       raS = ((((ra/15)-raH)*60)-raM)*60
-    RA = '{0}{1:02}{d}{2:02}{d}{3:07.4f}'.format(rs, raH, raM, raS, d=delimiter)
-  
+    RA = '{0}{1:02}{d}{2:02}{d}{3:0{4}.{5}f}'
+    RA = RA.format(rs, raH, raM, raS, rawidth, radecimals, d=delimiter)
+
   if ra and dec:
     return (RA, DEC)
   else:
@@ -1825,7 +1851,7 @@ def utc2mjd(utc):
 
 def repeated_linear(aa, bb, cinv, guess=None, damp=3):
     """Fit linear function with pseudo-Huber loss function via repeated SVD."""
-    
+
     # Better to do this by giving a Jacobian to scipy.optimze.least_squares
     from scipy import sparse
     aa = numpy.sqrt(cinv).dot(aa)
@@ -1900,3 +1926,18 @@ def damper_deriv(chi, damp, derivnum=1):
         return (1+numpy.abs(chi)/damp)**(-0.5)
     if derivnum == 2:
         return -0.5*numpy.sign(chi)/damp*(1+numpy.abs(chi)/damp)**(-1.5)
+
+
+def merge_arrays(arrlist):
+    """takes a list of arrays, merges them by field, should be what
+    np.lib.recfunctions.merge_arrays does, but maybe that does something
+    much slower?"""
+
+    sz = sum([len(arr) for arr in arrlist])
+    out = numpy.zeros(sz, dtype=arrlist[0].dtype)
+    count = 0
+    for arr in arrlist:
+        for name in arr.dtype.names:
+            out[name][count:count+len(arr)] = arr[name]
+        count += len(arr)
+    return out

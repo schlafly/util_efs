@@ -60,7 +60,7 @@ flags = {
 'ON_GHOST'         	  : 0x40000000, # peak lands on ghost or glint
 'OFF_CHIP'         	  : 0x80000000, # peak lands off edge of chip
 }
-for x,y in list(flags.items()):
+for x, y in list(flags.items()):
     flags[y] = x
 
 # definition of flags2 (see http://svn.pan-starrs.ifa.hawaii.edu/trac/ipp/wiki/CMF_PS1_V3)
@@ -77,11 +77,11 @@ flags2 = {
 'HAS_BRIGHTER_NEIGHBOR'   : 0x00000100, # peak is not the brightest in its footprint
 'BRIGHT_NEIGHBOR_1'       : 0x00000200, # flux_n / (r^2 flux_p) > 1
 'BRIGHT_NEIGHBOR_10'      : 0x00000400, # flux_n / (r^2 flux_p) > 10
-'DIFF_SELF_MATCH'  	  : 0x00000800, # positive detection match is probably this source 
+'DIFF_SELF_MATCH'  	  : 0x00000800, # positive detection match is probably this source
 'SATSTAR_PROFILE'         : 0x00001000, # saturated source is modeled with a radial profile
 'DUPLICATE_EFS'           : 0x10000000, # hand marked bad images by EFS
 }
-for x,y in list(flags2.items()):
+for x, y in list(flags2.items()):
     flags2[y] = x
 
 
@@ -90,7 +90,7 @@ pssdsstransformdict = {
     ('r-r', 'r-i'):
     {'giant': [(-.001171, -.02429, -.01060), [None, 1.6]],
      'dwarf':[(-.001283, -.01704, .005772), [None, None]]
-     }, 
+     },
     ('i-i', 'r-i'):   [(.001424, -.03279), [None, None]],
     ('z-z', 'i-z'):   [(-.003029, 0.1174, -.01855, 0.01579), [None, None]],
     ('y-z', 'i-z'):   [(0.01479, -.3777, 0.1078, -.03996), [None, None]],
@@ -324,7 +324,7 @@ def stellar_locus_tonry(ri, outcolor):
     return spl(ri)
     #return interpolate.spline(riknots, outknots, ri, kind='natural', order=3)
     #spl = interpolate.splmake(riknots, outknots, kind='natural')
-    
+
 def clean(tflags):
     badflags = (flags['FITFAIL'] | flags['POORFIT'] |
             flags['SATSTAR'] | flags['BLEND'] |

@@ -63,7 +63,6 @@ def import_file(filename, loader, tabledet, tableexp,
                 # FITS capitalization problems...
                 fix_names(det_dat.dtype, detra, detdec)
                 fix_names(exp_dat.dtype, expra, expdec)
-                # pdb.set_trace()
                 emptyexpid = numpy.zeros(len(det_dat), dtype='u8')
                 det_dat = rec_append_fields(det_dat, ['exp_id'], [emptyexpid])
                 expids = tableexp.append(exp_dat)
