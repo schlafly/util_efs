@@ -76,7 +76,7 @@ def match_radec(r1, d1, r2, d2, rad=1./60./60., nneighbor=0, notself=False):
     return m1[m], m2[m], d12[m]
 
 
-def match2d(x1, y1, x2, y2, rad):
+def match2d(x1, y1, x2, y2, rad, nearest=False):
     """Find all matches between x1, y1 and x2, y2 within radius rad."""
     from scipy.spatial import cKDTree
     xx1 = numpy.stack([x1, y1], axis=1)
@@ -91,6 +91,14 @@ def match2d(x1, y1, x2, y2, rad):
     else:
         m2 = numpy.concatenate([r for r in res if len(r) > 0])
     d12 = numpy.sqrt(numpy.sum((xx1[m1, :]-xx2[m2, :])**2, axis=1))
+    if nearest:
+        keep = numpy.zeros(len(m1), dtype='bool')
+        for f, l in subslices(m1):
+            keepind = numpy.argmin(d12[f:l])
+            keep[f+keepind] = True
+        m1 = m1[keep]
+        m2 = m2[keep]
+        d12 = d12[keep]
     return m1, m2, d12
 
 
@@ -500,7 +508,7 @@ def make_bins(p, range, bin, npix):
     else:
         npix = (npix if npix is not None else
                 numpy.ceil(0.3*numpy.sqrt(len(p))))
-        npix = npix if npix > 0 else 1
+        npix = int(npix) if npix > 0 else 1
         pts = numpy.linspace(range[0], range[1], npix+1)
     return range, pts, flip
 
@@ -718,13 +726,13 @@ def make_stats_usable(x):
 def convert_val(val, d, default=None):
     s = numpy.argsort(val)
     if len(d) > 0:
-        t = type((d.itervalues().next()))
+        t = type(next(iter(d.values())))
     else:
         t = type(default)
     out = numpy.zeros(len(val), dtype=t)
     for first, last in subslices(val[s]):
         key = val[s[first]]
-        if (not d.has_key(key)) and (default is None):
+        if (not key in d) and (default is None):
             raise AttributeError('dictionary d missing key /%s/' % str(key))
         out[s[first:last]] = d.get(val[s[first]], default)
     return out
@@ -1249,46 +1257,46 @@ class EventHandlerImshow():
         self.fig.canvas.draw()
 
 def contourpts(x, y, xnpix=None, ynpix=None, xrange=None, yrange=None,
-                normalize=True, xbin=None, ybin=None, log=False,
-                levels=None, nlevels=6, logmin=0, symbol=',', minlevel=1,
+               normalize=True, xbin=None, ybin=None, log=False,
+               levels=None, nlevels=6, logmin=0, symbol=',', minlevel=1,
                logspace=None, nopoints=False,
                **kw):
-     sc = Scatter(x, y, xnpix=xnpix, ynpix=ynpix, xbin=xbin, ybin=ybin,
-                  xrange=xrange, yrange=yrange, normalize=normalize,
-                  conditional=False)
-     if levels is None:
-         maximage = numpy.float(numpy.max(sc.hist*sc.norm))
-         if log:
-             if logspace is None:
-                 levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
-                                (numpy.log10(maximage)-logmin)/nlevels)/sc.norm
-             else:
-                 levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))[::-1]/sc.norm
-         else:
-             levels = (numpy.arange(nlevels)+minlevel)*maximage/nlevels
+    sc = Scatter(x, y, xnpix=xnpix, ynpix=ynpix, xbin=xbin, ybin=ybin,
+                 xrange=xrange, yrange=yrange, normalize=normalize,
+                 conditional=False)
+    if levels is None:
+        maximage = numpy.float(numpy.max(sc.hist*sc.norm))
+        if log:
+            if logspace is None:
+                levels = 10.**(logmin + (numpy.arange(nlevels)+1)*
+                               (numpy.log10(maximage)-logmin)/nlevels)/sc.norm
+            else:
+                levels = 10.**(numpy.log10(maximage)-logspace*numpy.arange(nlevels))[::-1]/sc.norm
+        else:
+            levels = (numpy.arange(nlevels)+minlevel)*maximage/sc.norm/nlevels
+    if 'colors' not in kw:
+        kw['colors'] = 'black'
+    if 'color' not in kw:
+        kw['color'] = 'black'
+    pyplot.contour(sc.hist.T, extent=[sc.xe[0], sc.xe[-1],
+                                      sc.ye[0], sc.ye[-1]],
+                   interpolation='nearest', origin='lower', aspect='auto',
+                   levels=levels, **kw)
+    flipx = sc.deltx < 0
+    flipy = sc.delty < 0
+    xloc = numpy.array(numpy.floor((x-sc.xe[0]) #[0 if not flipx else -1])
+                                   /sc.deltx), dtype='i4')
+    yloc = numpy.array(numpy.floor((y-sc.ye[0]) # if not flipy else -1])
+                                   /sc.delty), dtype='i4')
+    m = ((xloc >= 0) & (xloc < len(sc.xpts)) &
+         (yloc >= 0) & (yloc < len(sc.ypts)))
+    m[m] &= sc.hist[xloc[m], yloc[m]] < min(levels)
+    kw.pop('colors', None)
+    if not nopoints:
+        pyplot.plot(x[m], y[m], symbol, **kw)
+    pyplot.xlim(sc.xrange)
+    pyplot.ylim(sc.yrange)
 
-     if 'colors' not in kw:
-         kw['colors'] = 'black'
-     if 'color' not in kw:
-         kw['color'] = 'black'
-     pyplot.contour(sc.hist.T, extent=[sc.xe[0], sc.xe[-1],
-                                       sc.ye[0], sc.ye[-1]],
-                       interpolation='nearest', origin='lower', aspect='auto',
-                       levels=levels, **kw)
-     flipx = sc.deltx < 0
-     flipy = sc.delty < 0
-     xloc = numpy.array(numpy.floor((x-sc.xe[0]) #[0 if not flipx else -1])
-                                    /sc.deltx), dtype='i4')
-     yloc = numpy.array(numpy.floor((y-sc.ye[0]) # if not flipy else -1])
-                                    /sc.delty), dtype='i4')
-     m = ((xloc >= 0) & (xloc < len(sc.xpts)) &
-          (yloc >= 0) & (yloc < len(sc.ypts)))
-     m[m] &= sc.hist[xloc[m], yloc[m]] < min(levels)
-     kw.pop('colors', None)
-     if not nopoints:
-         pyplot.plot(x[m], y[m], symbol, **kw)
-     pyplot.xlim(sc.xrange)
-     pyplot.ylim(sc.yrange)
 
 def match(a, b):
     sa = numpy.argsort(a)
@@ -1488,6 +1496,11 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
     ybin = numpy.median(ypts[1:]-ypts[0:-1])
     if weight is None:
         weight = numpy.ones(len(dat))
+    m = numpy.isfinite(dat)
+    dat = dat[m]
+    x = x[m]
+    y = y[m]
+    weight = weight[m]
     hist_all = fasthist((x,y), (xpts[0], ypts[0]),
                         (len(xpts)-1, len(ypts)-1),
                         (xpts[1]-xpts[0], ypts[1]-ypts[0]),
@@ -1503,8 +1516,8 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
 
     loc = [numpy.array(numpy.floor((i-f)//sz)+1, dtype='i4')
            for i,f,sz in zip((x, y), (xpts[0], ypts[0]), (xpts[1]-xpts[0], ypts[1]-ypts[0]))]
-    loc = [numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in
-           zip(loc, (len(xpts)-1, len(ypts)-1))]
+    loc = tuple([numpy.clip(loc0, 0, n+1, out=loc0) for loc0, n in
+                 zip(loc, (len(xpts)-1, len(ypts)-1))])
 
 
     # uhh, dumbest thing is max one point per bin
@@ -1528,7 +1541,6 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
         yrange = [r for r in reversed(yrange)]
 
     ret = imshow(hist_all[1:-1,1:-1], xpts[:-1]+xbin/2., ypts[:-1]+ybin/2., xrange=xrange, yrange=yrange, cmap=cmap, log=log, vmin=vmin, vmax=vmax, origin='lower', mask_nan=mask_nan)
-    # pyplot.draw()
     if showpts:
         # need to find the points that were in a bin with only 1 point.
         m = ~numpy.isfinite(hist_all[loc])
@@ -1636,6 +1648,32 @@ def mjd2lst(mjd, lng):
     return lst
 
 
+def zenithrd(lat, lng, mjd, precess=True):
+    lst = mjd2lst(mjd, lng)
+    rr = lst*360./24
+    dd = lat*numpy.ones_like(rr)
+    if precess:
+        import precess as precessmod
+        jd2000   = 2451545.0
+        mjdstart = 2400000.5
+        rr, dd = precessmod.precess(
+            rr, dd, 2000.+(mjd+mjdstart-jd2000)/365.25, 2000.)
+    return rr, dd
+
+
+def parallactic_angle(rr, dd, lat, lng, mjd):  # no precession
+    ha = mjd2lst(mjd, lng)*360/24 - rr
+    latr = numpy.radians(lat)
+    har = numpy.radians(ha)
+    ddr = numpy.radians(dd)
+    from numpy import sin, cos
+    parallactic = -numpy.degrees(numpy.arctan2(
+        -numpy.sin(har),
+        numpy.cos(ddr)*numpy.tan(latr)-numpy.sin(ddr)*numpy.cos(har)))
+    return parallactic
+
+
+# KPNO lat/lon: 31.960595 -111.599208
 # PS1 lat/lon: 20.71552, -156.169
 def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
     if precess:
@@ -1659,9 +1697,49 @@ def hadec2altaz(ha, dec, lat):
     y = - sh * cd
     z = ch * cd * cl + sd * sl
     r = numpy.sqrt(x**2 + y**2)
-    az = numpy.arctan2(y, x) / d2r
-    alt = (numpy.arctan2(z, r) / d2r) % 360.
+    az = (numpy.arctan2(y, x) / d2r) % 360.
+    alt = (numpy.arctan2(z, r) / d2r)
     return alt, az
+
+
+def hadec2altaz(ha, dec, lat):
+    d2r = numpy.pi/180.
+    sin, cos = numpy.sin, numpy.cos
+    sh, ch = sin(ha*d2r),  cos(ha*d2r)
+    sd, cd = sin(dec*d2r), cos(dec*d2r)
+    sl, cl = sin(lat*d2r), cos(lat*d2r)
+    x = - ch * cd * sl + sd * cl
+    y = - sh * cd
+    z = ch * cd * cl + sd * sl
+    r = numpy.sqrt(x**2 + y**2)
+    az = (numpy.arctan2(y, x) / d2r) % 360.
+    alt = (numpy.arctan2(z, r) / d2r)
+    return alt, az
+
+
+def altazllmjd2rd(alt, az, lat, lng, mjd, precess=True):
+    d2r = numpy.pi/180.
+    # altaz2hadec.pro in idlutils
+    sin, cos = numpy.sin, numpy.cos
+    salt, calt = sin(alt*d2r),  cos(alt*d2r)
+    saz, caz = sin(az*d2r), cos(az*d2r)
+    sl, cl = sin(lat*d2r), cos(lat*d2r)
+    x = - caz * calt * sl + salt * cl
+    y = - saz * calt
+    z = caz * calt * cl + salt * sl
+    r = numpy.sqrt(x**2 + y**2)
+    ha = numpy.arctan2(y, x) / d2r
+    d = (numpy.arctan2(z, r) / d2r) % 360.
+    lst = mjd2lst(mjd, lng)
+    r = lst*360./24 - ha
+    if precess:
+        # precess back to J2000 from observed coordinates.
+        import precess as precessmod
+        jd2000 = 2451545.0
+        mjdstart = 2400000.5
+        r, d = precessmod.precess(r, d, 2000.+(mjd + mjdstart - jd2000)/365.25, 2000.)
+    return r, d
+
 
 def alt2airmass(alt):
     # Pickering (2002) according to Wikipedia?
@@ -1670,6 +1748,11 @@ def alt2airmass(alt):
     # disagrees with sec(z) by 0.001 - 0.002 near zenith, which is the most important part anyway.
     # probably ~1% better at airmass 3, and rapidly better after that---but who cares?
     return 1./numpy.cos(numpy.radians(90-alt))
+
+
+def refraction_simple_kpno(alt):
+    return 220e-6*180/numpy.pi*numpy.tan(numpy.radians(90-alt))
+
 
 def interpolate_from(fits, r, d, wcs=None, im=None):
     if wcs is None:
@@ -1872,7 +1955,9 @@ def repeated_linear(aa, bb, cinv, guess=None, damp=3):
     from scipy.optimize import least_squares
     res = least_squares(chi, guess, jac=jacobian)
     atcinva = res['jac'].T.dot(res['jac'])
-    u, s, vh = numpy.linalg.svd(numpy.array(atcinva.todense()))
+    if getattr(atcinva, 'todense', None) is not None:
+        atcinva = atcinva.todense()
+    u, s, vh = numpy.linalg.svd(numpy.array(atcinva))
     s2 = s.copy()
     svdthresh = 1e-10
     s2[s < svdthresh] = 0.
@@ -1941,3 +2026,39 @@ def merge_arrays(arrlist):
             out[name][count:count+len(arr)] = arr[name]
         count += len(arr)
     return out
+
+
+def lb2tan(l, b, lcen=None, bcen=None):
+    up = numpy.array([0, 0, 1])
+    uv = lb2uv(l, b)
+    if lcen is None:
+        lcen, bcen = uv2lb(numpy.mean(uv, axis=0).reshape(1, -1))
+        lcen, bcen = lcen[0], bcen[0]
+    uvcen = lb2uv(lcen, bcen)
+    # error if directly at pole
+    rahat = numpy.cross(up, uvcen)
+    rahat /= numpy.sqrt(numpy.sum(rahat**2))
+    dechat = numpy.cross(uvcen, rahat)
+    dechat /= numpy.sqrt(numpy.sum(dechat**2))
+    xx = numpy.einsum('i,ji', rahat, uv)
+    yy = numpy.einsum('i,ji', dechat, uv)
+    xx *= 180/numpy.pi
+    yy *= 180/numpy.pi
+    return xx, yy
+
+
+def tan2lb(xx, yy, lcen, bcen):
+    uvcen = lb2uv(lcen, bcen)
+    up = numpy.array([0, 0, 1])
+    rahat = numpy.cross(up, uvcen)
+    rahat /= numpy.sqrt(numpy.sum(rahat**2))
+    dechat = numpy.cross(uvcen, rahat)
+    dechat /= numpy.sqrt(numpy.sum(dechat**2))
+    xcoord = xx*numpy.pi/180
+    ycoord = yy*numpy.pi/180
+    zcoord = numpy.sqrt(1-xcoord**2-ycoord**2)
+    uv = (xcoord.reshape(-1, 1)*rahat.reshape(1, -1) +
+          ycoord.reshape(-1, 1)*dechat.reshape(1, -1) +
+          zcoord.reshape(-1, 1)*uvcen.reshape(1, -1))
+    print(uvcen, rahat, dechat)
+    return uv2lb(uv)
