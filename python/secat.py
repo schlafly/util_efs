@@ -288,3 +288,28 @@ def ls_photom_v2_read(filename):
     phdr = headers_to_ndarr([hdr], exclude_btable=True)
     return [(dat, phdr)]
 ls_photom_v2_read.ccds = None
+
+
+def ls_photom_v3_read(filename):
+    if ls_photom_v3_read.fnlist is None:
+        print('Loading fn list %s...' % os.environ['LS_FNLIST'])
+        ls_photom_v3_read.fnlist = fits.getdata(os.environ['LS_FNLIST'])
+        print('Finished loading fnlist.')
+    fnlist = ls_photom_v3_read.fnlist
+    dat, hdr = fits.getdata(filename, 1, header=True)
+    dat = numpy.array(dat).copy()
+
+    imname = '/'.join(filename.split('/')[-5:])
+    if imname.replace('-photom.fits', '.fits.fz') not in fnlist['filename']:
+        print('Weird file name!', imname)
+        return []
+    hdr['RA'] = hdr['RA_BORE']
+    hdr['DEC'] = hdr['DEC_BORE']
+
+    dat = rec_append_fields(dat, 'mjd_obs',
+                            numpy.zeros(len(dat), dtype='f8')+hdr['MJD-OBS'])
+    names = [n.lower() for n in dat.dtype.names]
+    dat.dtype.names = names
+    phdr = headers_to_ndarr([hdr], exclude_btable=True)
+    return [(dat, phdr)]
+ls_photom_v3_read.fnlist = None

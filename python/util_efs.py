@@ -1515,6 +1515,18 @@ def histpts(x, y, dat, weight=None, xnpix=None, ynpix=None, xrange=None,
         vmin = numpy.nanmin(hist_all)
     if vmax is None:
         vmax = numpy.nanmax(hist_all)
+
+    if flipx:
+        xpts = xpts[::-1].copy()
+        hist_all = hist_all[::-1,:].copy()
+        count_hist = count_hist[::-1,:].copy()
+        xrange = [r for r in reversed(xrange)]
+    if flipy:
+        ypts = ypts[::-1].copy()
+        hist_all = hist_all[:,::-1].copy()
+        count_hist = count_hist[:,::-1].copy()
+        yrange = [r for r in reversed(yrange)]
+
     ret = imshow(hist_all[1:-1,1:-1], xpts[:-1]+xbin/2., ypts[:-1]+ybin/2., xrange=xrange, yrange=yrange, cmap=cmap, log=log, vmin=vmin, vmax=vmax, origin='lower', mask_nan=mask_nan)
     # pyplot.draw()
     if showpts:
@@ -1623,6 +1635,7 @@ def mjd2lst(mjd, lng):
     lst = lst % 24.
     return lst
 
+
 # PS1 lat/lon: 20.71552, -156.169
 def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
     if precess:
@@ -1632,11 +1645,15 @@ def rdllmjd2altaz(r, d, lat, lng, mjd, precess=True):
         r, d = precessmod.precess(r, d, 2000., 2000.+(mjd + mjdstart - jd2000)/365.25)
     lst = mjd2lst(mjd, lng)
     ha = lst*360./24 - r
+    return hadec2altaz(ha, d, lat)
+
+
+def hadec2altaz(ha, dec, lat):
     d2r = numpy.pi/180.
     # hadec2altaz.pro in idlutils
     sin, cos = numpy.sin, numpy.cos
     sh, ch = sin(ha*d2r),  cos(ha*d2r)
-    sd, cd = sin(d*d2r), cos(d*d2r)
+    sd, cd = sin(dec*d2r), cos(dec*d2r)
     sl, cl = sin(lat*d2r), cos(lat*d2r)
     x = - ch * cd * sl + sd * cl
     y = - sh * cd
@@ -1752,8 +1769,13 @@ def HMS2deg(ra='', dec='', delimiter=None):
     return RA or DEC
 
 # stolen from internet
-def deg2HMS(ra='', dec='', round=False, delimiter=' '):
+def deg2HMS(ra='', dec='', round=False, delimiter=' ', includedecsign=False,
+            radecimals=4, decdecimals=3):
   RA, DEC, rs, ds = '', '', '', ''
+  rawidth = radecimals+1+2
+  decwidth = decdecimals+1+2
+  if includedecsign:
+      ds = '+'
   if dec:
     if str(dec)[0] == '-':
       ds, dec = '-', abs(dec)
@@ -1763,7 +1785,8 @@ def deg2HMS(ra='', dec='', round=False, delimiter=' '):
       decS = int((abs((dec-deg)*60)-decM)*60)
     else:
       decS = (abs((dec-deg)*60)-decM)*60
-    DEC = '{0}{1:02}{d}{2:02}{d}{3:06.3f}'.format(ds, deg, decM, decS, d=delimiter)
+    DEC = '{0}{1:02}{d}{2:02}{d}{3:0{4}.{5}f}'
+    DEC = DEC.format(ds, deg, decM, decS, decwidth, decdecimals, d=delimiter)
   
   if ra:
     if str(ra)[0] == '-':
@@ -1774,7 +1797,8 @@ def deg2HMS(ra='', dec='', round=False, delimiter=' '):
       raS = int(((((ra/15)-raH)*60)-raM)*60)
     else:
       raS = ((((ra/15)-raH)*60)-raM)*60
-    RA = '{0}{1:02}{d}{2:02}{d}{3:07.4f}'.format(rs, raH, raM, raS, d=delimiter)
+    RA = '{0}{1:02}{d}{2:02}{d}{3:0{4}.{5}f}'
+    RA = RA.format(rs, raH, raM, raS, rawidth, radecimals, d=delimiter)
   
   if ra and dec:
     return (RA, DEC)
@@ -1902,3 +1926,18 @@ def damper_deriv(chi, damp, derivnum=1):
         return (1+numpy.abs(chi)/damp)**(-0.5)
     if derivnum == 2:
         return -0.5*numpy.sign(chi)/damp*(1+numpy.abs(chi)/damp)**(-1.5)
+
+
+def merge_arrays(arrlist):
+    """takes a list of arrays, merges them by field, should be what
+    np.lib.recfunctions.merge_arrays does, but maybe that does something
+    much slower?"""
+
+    sz = sum([len(arr) for arr in arrlist])
+    out = numpy.zeros(sz, dtype=arrlist[0].dtype)
+    count = 0
+    for arr in arrlist:
+        for name in arr.dtype.names:
+            out[name][count:count+len(arr)] = arr[name]
+        count += len(arr)
+    return out
